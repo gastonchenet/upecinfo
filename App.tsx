@@ -370,7 +370,7 @@ const styles = StyleSheet.create({
 		marginTop: "auto",
 	},
 	title: {
-		fontWeight: "900",
+		fontWeight: Appearance.getColorScheme() === "dark" ? "700" : "900",
 		fontSize: 18,
 		color: getTheme().header,
 	},
@@ -381,7 +381,7 @@ const styles = StyleSheet.create({
 	},
 	teacherText: {
 		fontSize: 15,
-		color: getTheme().gray,
+		color: getTheme().teacherColor,
 		fontStyle: "italic",
 	},
 	head: {

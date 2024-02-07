@@ -1,6 +1,6 @@
 {
 	"name": "planning",
-	"version": "1.0",
+	"version": "1.1",
 	"main": "node_modules/expo/AppEntry.js",
 	"scripts": {
 		"start": "expo start",
@@ -11,7 +11,7 @@
 	"dependencies": {
 		"@babel/plugin-proposal-export-namespace-from": "^7.18.9",
 		"expo": "~50.0.6",
-		"expo-secure-store": "~12.8.1",
+		"expo-secure-store": "^12.8.1",
 		"expo-splash-screen": "~0.26.4",
 		"expo-status-bar": "~1.11.1",
 		"moment": "^2.30.1",

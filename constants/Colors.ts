@@ -11,6 +11,7 @@ export default {
 		eventColor: "#ffffff",
 		lightGray: "#aaaaaa",
 		gray: "#999999",
+		teacherColor: "#999999",
 		header: "#000000",
 	},
 	dark: {
@@ -23,8 +24,9 @@ export default {
 		white80: "#ffffffaa",
 		primary: "#191a1c",
 		eventColor: "#303033",
-		lightGray: "#aaaaaa",
-		gray: "#999999",
-		header: "#ffffff",
+		lightGray: "#666666",
+		gray: "#555555",
+		teacherColor: "#888888",
+		header: "#e5e5e5",
 	},
 };
