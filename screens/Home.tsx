@@ -7,7 +7,6 @@ import {
 	Text,
 	View,
 	StatusBar as StatusBarRN,
-	Appearance,
 } from "react-native";
 import moment, { Moment } from "moment";
 import React, { useState } from "react";
@@ -16,17 +15,15 @@ import RipplePressable from "../components/RipplePressable";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import Calendar from "../components/Calendar";
 import getTheme from "../utils/getTheme";
-import { MealEvent, PlanningEvent } from "../types/Planning";
+import type { MealEvent, Planning, PlanningEvent } from "../types/Planning";
 
-type HomeOptions =
-	| {
-			route: {
-				params: {
-					planningData: PlanningEvent[];
-				};
-			};
-	  }
-	| any;
+type HomeOptions = {
+	route: {
+		params: {
+			planningData: Planning;
+		};
+	};
+};
 
 const HSL_ROTAION = 360;
 const MAX_COLORS = 12;
@@ -75,19 +72,6 @@ function getMealEvent(dayEvents: PlanningEvent[]) {
 	return sortedHoles[0] ?? null;
 }
 
-function getDayEvents(
-	planning: PlanningEvent[],
-	date: Moment
-): PlanningEvent[] {
-	return planning
-		.filter(
-			(event) =>
-				moment(event.start).isSame(date, "day") &&
-				moment(event.end).isSame(date, "day")
-		)
-		.sort((a, b) => moment(a.start).diff(moment(b.start), "minutes"));
-}
-
 export default function Home({
 	route: {
 		params: { planningData },
@@ -97,17 +81,17 @@ export default function Home({
 	const [calendarDeployed, setCalendarDeployed] = useState(false);
 
 	const [dayEvents, setDayEvents] = useState<PlanningEvent[]>(
-		getDayEvents(planningData, moment())
+		planningData[moment().format("YYYY-MM-DD")]
 	);
 
 	const [mealEvent, setMealEvent] = useState<MealEvent>(
-		getMealEvent(dayEvents)
+		getMealEvent(planningData[moment().format("YYYY-MM-DD")])
 	);
 
 	function changeDay(date: Moment) {
 		setSelectedDate(date);
 
-		const events = getDayEvents(planningData, moment(date));
+		const events = planningData[date.format("YYYY-MM-DD")] ?? [];
 
 		setDayEvents(events);
 		setMealEvent(getMealEvent(events));
@@ -189,9 +173,10 @@ export default function Home({
 						</View>
 					</View>
 					<Calendar
+						planningData={planningData}
 						selectedDate={selectedDate}
-						setSelectedDate={changeDay}
 						visible={calendarDeployed}
+						setSelectedDate={changeDay}
 						setVisible={setCalendarDeployed}
 					/>
 					<ScrollView
@@ -201,7 +186,10 @@ export default function Home({
 							ref?.scrollTo({
 								x: 0,
 								y: selectedDate.isSame(moment(), "day")
-									? (selectedDate.hour() - PLANNING_START + 1) * 100 -
+									? (selectedDate.diff(selectedDate.startOf("day"), "minutes") /
+											60 -
+											PLANNING_START) *
+											100 -
 									  Dimensions.get("window").height / 2
 									: 0,
 								animated: true,
@@ -238,8 +226,7 @@ export default function Home({
 													"minutes"
 												) /
 													60 -
-													PLANNING_START +
-													1) *
+													PLANNING_START) *
 												100,
 											height:
 												(moment(event.end).diff(
@@ -283,50 +270,64 @@ export default function Home({
 							))}
 							{mealEvent && (
 								<View
-									style={{
-										position: "absolute",
-										top:
-											(mealEvent.start.diff(
-												selectedDate.startOf("day"),
-												"minutes"
-											) /
-												60 -
-												PLANNING_START +
-												1) *
-												100 +
-											10,
-										height:
-											(mealEvent.end.diff(mealEvent.start, "minutes") / 60) *
-												100 -
-											20,
-										width: Dimensions.get("window").width - 50,
-										left: 50,
-										borderRadius: 10,
-										backgroundColor: "#f5e07633",
-										padding: 10,
-										borderWidth: 1,
-										borderColor: "#f5e076aa",
-										borderStyle: "dashed",
-										alignItems: "center",
-										justifyContent: "center",
-									}}
+									style={[
+										styles.mealTimeBox,
+										{
+											top:
+												(mealEvent.start.diff(
+													selectedDate.startOf("day"),
+													"minutes"
+												) /
+													60 -
+													PLANNING_START) *
+													100 +
+												10,
+											height:
+												(mealEvent.end.diff(mealEvent.start, "minutes") / 60) *
+													100 -
+												20,
+										},
+									]}
 								>
 									<MaterialIcons
 										name="lunch-dining"
 										size={24}
-										color="#f5e076"
+										color={getTheme().yellow}
 									/>
-									<Text
-										style={{
-											fontWeight: "500",
-											color: "#f5e076",
-											fontSize: 14,
-										}}
-									>
-										Pause déjeuner
-									</Text>
+									<Text style={styles.mealTimeText}>Pause déjeuner</Text>
 								</View>
 							)}
+							<View
+								style={{
+									position: "absolute",
+									backgroundColor: "#6da6e8",
+									width: Dimensions.get("window").width,
+									height: 2,
+									zIndex: 100,
+									top:
+										(moment().diff(selectedDate.startOf("day"), "minutes") /
+											60 -
+											PLANNING_START) *
+										100,
+								}}
+							/>
+							<View
+								style={{
+									position: "absolute",
+									backgroundColor: "#6da6e8",
+									width: 12,
+									height: 12,
+									borderRadius: 6,
+									zIndex: 100,
+									left: 50,
+									transform: [{ translateY: -5 }, { translateX: -5.5 }],
+									top:
+										(moment().diff(selectedDate.startOf("day"), "minutes") /
+											60 -
+											PLANNING_START) *
+										100,
+								}}
+							/>
 						</View>
 					</ScrollView>
 				</View>
@@ -369,19 +370,20 @@ const styles = StyleSheet.create({
 		paddingHorizontal: 8,
 		paddingVertical: 4,
 		borderRadius: 5,
-		fontWeight: "500",
 		fontSize: 12,
+		fontFamily: "Rubik-Regular",
 	},
 	boundaries: {
 		fontWeight: "400",
 		color: getTheme().lightGray,
 		fontSize: 12,
 		marginTop: "auto",
+		fontFamily: "Rubik-Regular",
 	},
 	title: {
-		fontWeight: Appearance.getColorScheme() === "dark" ? "700" : "900",
 		fontSize: 18,
 		color: getTheme().header,
+		fontFamily: "Rubik-Bold",
 	},
 	teacher: {
 		flexDirection: "row",
@@ -391,7 +393,7 @@ const styles = StyleSheet.create({
 	teacherText: {
 		fontSize: 15,
 		color: getTheme().teacherColor,
-		fontStyle: "italic",
+		fontFamily: "Rubik-Italic",
 	},
 	head: {
 		alignItems: "center",
@@ -411,13 +413,16 @@ const styles = StyleSheet.create({
 	},
 	appTitle: {
 		color: getTheme().white,
-		fontWeight: "900",
 		fontSize: 24,
+		fontFamily: "Rubik-ExtraBold",
+		lineHeight: 28,
 	},
 	appDescription: {
 		color: getTheme().white80,
 		fontWeight: "400",
 		fontSize: 12,
+		fontFamily: "Rubik-Regular",
+		lineHeight: 18,
 	},
 	subHead: {
 		paddingHorizontal: 15,
@@ -435,12 +440,13 @@ const styles = StyleSheet.create({
 	subHeadDay: {
 		textTransform: "capitalize",
 		color: getTheme().white,
-		fontWeight: "700",
 		fontSize: 16,
+		fontFamily: "Rubik-Bold",
 	},
 	subHeadDayBounds: {
 		color: getTheme().white80,
 		fontSize: 12,
+		fontFamily: "Rubik-Regular",
 	},
 	subHeadButton: {
 		borderRadius: 18,
@@ -468,6 +474,7 @@ const styles = StyleSheet.create({
 		fontSize: 12,
 		color: getTheme().gray,
 		transform: [{ translateY: -8 }],
+		fontFamily: "Rubik-Regular",
 	},
 	eventContainer: {
 		position: "absolute",
@@ -478,5 +485,23 @@ const styles = StyleSheet.create({
 	teacherIcon: {
 		width: 20,
 		height: 20,
+	},
+	mealTimeBox: {
+		position: "absolute",
+		backgroundColor: getTheme().yellowFill,
+		borderColor: getTheme().yellowBorder,
+		width: Dimensions.get("window").width - 50,
+		left: 50,
+		borderRadius: 10,
+		padding: 10,
+		borderWidth: 1,
+		borderStyle: "dashed",
+		alignItems: "center",
+		justifyContent: "center",
+	},
+	mealTimeText: {
+		color: getTheme().yellow,
+		fontSize: 14,
+		fontFamily: "Rubik-Italic",
 	},
 });

@@ -1,20 +1,20 @@
 import React, { useEffect, useState } from "react";
-import { View, Text, StyleSheet, Appearance } from "react-native";
+import { View, Text, StyleSheet, Appearance, Pressable } from "react-native";
 import Animated, {
 	useAnimatedStyle,
 	useSharedValue,
 	withTiming,
 } from "react-native-reanimated";
 import getTheme from "../utils/getTheme";
-import RipplePressable from "./RipplePressable";
 import { MaterialIcons } from "@expo/vector-icons";
-import moment, { Moment } from "moment";
-import OutsidePressHandler from "react-native-outside-press";
+import moment, { type Moment } from "moment";
+import type { Planning } from "../types/Planning";
 
 type CalendarOptions = {
+	planningData: Planning;
 	selectedDate: Moment;
-	setSelectedDate: (date: Moment) => void;
 	visible: boolean;
+	setSelectedDate: (date: Moment) => void;
 	setVisible: (visible: boolean) => void;
 };
 
@@ -28,12 +28,15 @@ function monthDays(year: number, month: number) {
 }
 
 export default function Calendar({
+	planningData,
 	selectedDate,
-	setSelectedDate,
 	visible,
+	setSelectedDate,
 	setVisible,
 }: CalendarOptions) {
-	const [currentMonth, setCurrentMonth] = useState(selectedDate);
+	const [currentMonth, setCurrentMonth] = useState(
+		selectedDate.clone().startOf("month")
+	);
 
 	const calendarOpacity = useSharedValue(0);
 	const calendarY = useSharedValue(-50);
@@ -78,57 +81,47 @@ export default function Calendar({
 
 	return (
 		<Animated.View style={[styles.calendar, calendarAnimatedStyle]}>
-			{/* <OutsidePressHandler onOutsidePress={dismissCalendar}> */}
 			<View style={styles.calendarHead}>
 				<View style={styles.calendarLabel}>
-					<RipplePressable
-						rippleColor="#0001"
-						duration={500}
+					<Pressable
 						onPress={selectCurrentDate}
+						style={{
+							height: 40,
+							width: 40,
+							alignItems: "center",
+							justifyContent: "center",
+							borderRadius: 20,
+						}}
 					>
 						<MaterialIcons name="today" size={24} color={getTheme().header} />
-					</RipplePressable>
+					</Pressable>
 					<Text style={styles.calendarDay}>
 						{currentMonth.format("MMMM YYYY")}
 					</Text>
 				</View>
 				<View style={styles.calendarButtons}>
-					<RipplePressable
-						rippleColor="#0001"
-						duration={500}
-						onPress={subtractMonth}
-						style={styles.calendarButton}
-					>
+					<Pressable onPress={subtractMonth} style={styles.calendarButton}>
 						<MaterialIcons
 							name="keyboard-arrow-left"
 							size={24}
 							color={getTheme().header}
 						/>
-					</RipplePressable>
-					<RipplePressable
-						rippleColor="#0001"
-						duration={500}
-						onPress={addMonth}
-						style={styles.calendarButton}
-					>
+					</Pressable>
+					<Pressable onPress={addMonth} style={styles.calendarButton}>
 						<MaterialIcons
 							name="keyboard-arrow-right"
 							size={24}
 							color={getTheme().header}
 						/>
-					</RipplePressable>
+					</Pressable>
 				</View>
 			</View>
 			<View style={styles.dayWrapper}>
 				{Array.from(
-					{
-						length: monthDays(currentMonth.year(), currentMonth.month()),
-					},
+					{ length: monthDays(currentMonth.year(), currentMonth.month()) },
 					(_, i) => (
-						<RipplePressable
+						<Pressable
 							key={i}
-							rippleColor="#0001"
-							duration={500}
 							style={[
 								styles.dayButton,
 								{
@@ -143,12 +136,27 @@ export default function Calendar({
 							]}
 							onPress={() => selectDate(currentMonth.clone().date(i + 1))}
 						>
-							<Text style={styles.dayLabel}>{i + 1}</Text>
-						</RipplePressable>
+							<Text
+								style={[
+									styles.dayLabel,
+									{
+										color: planningData[
+											currentMonth
+												.clone()
+												.date(i + 1)
+												.format("YYYY-MM-DD")
+										]
+											? getTheme().darkGray
+											: getTheme().lightGray,
+									},
+								]}
+							>
+								{i + 1}
+							</Text>
+						</Pressable>
 					)
 				)}
 			</View>
-			{/* </OutsidePressHandler> */}
 		</Animated.View>
 	);
 }
@@ -157,7 +165,7 @@ const styles = StyleSheet.create({
 	calendar: {
 		position: "absolute",
 		backgroundColor: getTheme().eventColor,
-		top: 50,
+		top: 56,
 		right: 0,
 		width: 260,
 		zIndex: 100,
@@ -167,23 +175,22 @@ const styles = StyleSheet.create({
 		shadowOffset: { width: 0, height: 2 },
 		shadowOpacity: 0.25,
 		padding: 10,
+		marginRight: 10,
 	},
 	calendarHead: {
 		flexDirection: "row",
 		justifyContent: "space-between",
 		alignItems: "center",
-		paddingLeft: 5,
 		marginBottom: 10,
 	},
 	calendarLabel: {
 		flexDirection: "row",
 		alignItems: "center",
-		gap: 10,
 	},
 	calendarDay: {
-		fontSize: 18,
-		fontWeight: "700",
+		fontSize: 16,
 		color: getTheme().header,
+		fontFamily: "Rubik-Bold",
 	},
 	calendarButtons: {
 		flexDirection: "row",
@@ -213,5 +220,6 @@ const styles = StyleSheet.create({
 	dayLabel: {
 		fontSize: 16,
 		color: getTheme().darkGray,
+		fontFamily: "Rubik-Regular",
 	},
 });

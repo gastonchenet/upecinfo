@@ -27,7 +27,15 @@
 		},
 		"plugins": [
 			"expo-secure-store",
-			["expo-font", ["./assets/fonts/Rubik.ttf"]]
+			[
+				"expo-font",
+				[
+					"./assets/fonts/Rubik-Regular.ttf",
+					"./assets/fonts/Rubik-Italic.ttf",
+					"./assets/fonts/Rubik-Bold.ttf",
+					"./assets/fonts/Rubik-ExtraBold.ttf"
+				]
+			]
 		],
 		"extra": {
 			"eas": {

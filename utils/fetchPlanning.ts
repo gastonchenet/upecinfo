@@ -1,5 +1,5 @@
 import moment from "moment";
-import { PlanningEvent } from "../types/Planning";
+import type { Planning, PlanningEvent } from "../types/Planning";
 
 const PLANNING_URL =
 	"https://ade.u-pec.fr/jsp/custom/modules/plannings/anonymous_cal.jsp";
@@ -9,6 +9,8 @@ function getItemValue(raw: string) {
 }
 
 export default async function fetchPlanning(planningId: string) {
+	const days: Planning = {};
+
 	const url = new URL(PLANNING_URL);
 	url.searchParams.set("data", planningId);
 
@@ -20,11 +22,11 @@ export default async function fetchPlanning(planningId: string) {
 		},
 	});
 
-	if (!res.ok) return [];
+	if (!res.ok) return {};
 	const rawData = await res.text();
 	const data: PlanningEvent[] = [];
 
-	rawData.split("BEGIN:VEVENT").forEach((event, i) => {
+	rawData.split("BEGIN:VEVENT").forEach((event) => {
 		if (!event.includes("END:VEVENT")) return;
 
 		const lines = event.split("\n");
@@ -64,5 +66,13 @@ export default async function fetchPlanning(planningId: string) {
 		});
 	});
 
-	return data;
+	data
+		.sort((a, b) => moment(a.start).valueOf() - moment(b.start).valueOf())
+		.forEach((event) => {
+			const date = moment(event.start).format("YYYY-MM-DD");
+			if (!days[date]) days[date] = [];
+			days[date].push(event);
+		});
+
+	return days;
 }

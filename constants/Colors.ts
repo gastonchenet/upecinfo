@@ -10,10 +10,13 @@ export default {
 		primary: "#ffffff",
 		eventColor: "#ffffff",
 		lightGray: "#aaaaaa",
-		darkGray: "#333333",
+		darkGray: "#555555",
 		gray: "#999999",
 		teacherColor: "#999999",
 		header: "#000000",
+		yellow: "#f5e076",
+		yellowBorder: "#f5e076aa",
+		yellowFill: "#f5e07633",
 	},
 	dark: {
 		accent: "#e42535",
@@ -30,5 +33,8 @@ export default {
 		gray: "#555555",
 		teacherColor: "#888888",
 		header: "#e5e5e5",
+		yellow: "#f5e076",
+		yellowBorder: "#f5e076aa",
+		yellowFill: "#f5e07633",
 	},
 };

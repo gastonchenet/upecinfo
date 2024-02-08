@@ -1,6 +1,6 @@
 import type { Moment } from "moment";
 
-export type PlanningEvent = {
+type PlanningEvent = {
 	start: string;
 	end: string;
 	summary: string;
@@ -8,8 +8,12 @@ export type PlanningEvent = {
 	teacher: string;
 };
 
-export type MealEvent = {
+type MealEvent = {
 	start: Moment;
 	end: Moment;
 	duration: number;
 };
+
+type Planning = { [key: string]: PlanningEvent[] };
+
+export type { Planning, PlanningEvent, MealEvent };

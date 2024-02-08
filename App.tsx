@@ -6,7 +6,7 @@ import Home from "./screens/Home";
 import { useFonts } from "expo-font";
 import fetchPlanning from "./utils/fetchPlanning";
 import { hideAsync, preventAutoHideAsync } from "expo-splash-screen";
-import type { PlanningEvent } from "./types/Planning";
+import type { Planning } from "./types/Planning";
 import moment from "moment";
 import "moment/locale/fr";
 
@@ -23,10 +23,13 @@ const Stack = createStackNavigator();
 
 export default function App() {
 	const [loading, setLoading] = useState(true);
-	const [planningData, setPlanningData] = useState<PlanningEvent[]>([]);
+	const [planningData, setPlanningData] = useState<Planning>({});
 
 	const [fontsLoaded] = useFonts({
-		"Inter-Black": require("./assets/fonts/Rubik.ttf"),
+		"Rubik-Regular": require("./assets/fonts/Rubik-Regular.ttf"),
+		"Rubik-Italic": require("./assets/fonts/Rubik-Italic.ttf"),
+		"Rubik-Bold": require("./assets/fonts/Rubik-Bold.ttf"),
+		"Rubik-ExtraBold": require("./assets/fonts/Rubik-ExtraBold.ttf"),
 	});
 
 	useEffect(() => {
@@ -34,16 +37,16 @@ export default function App() {
 			fetchPlanning(PLANNING_SEM1_ID),
 			fetchPlanning(PLANNING_SEM2_ID),
 		]).then((data) => {
-			setPlanningData(data.flat());
+			setPlanningData({ ...data[0], ...data[1] });
 			setLoading(false);
 		});
-	});
+	}, []);
 
 	const onLayoutRootView = useCallback(async () => {
 		if (!loading && fontsLoaded) return await hideAsync();
 	}, [loading, fontsLoaded]);
 
-	if (loading) return null;
+	if (loading || !fontsLoaded) return null;
 
 	return (
 		<EventProvider onLayout={onLayoutRootView}>
@@ -54,7 +57,7 @@ export default function App() {
 				>
 					<Stack.Screen
 						name="Home"
-						component={Home}
+						component={Home as any}
 						initialParams={{ planningData }}
 					/>
 				</Stack.Navigator>
