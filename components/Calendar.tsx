@@ -85,13 +85,7 @@ export default function Calendar({
 				<View style={styles.calendarLabel}>
 					<Pressable
 						onPress={selectCurrentDate}
-						style={{
-							height: 40,
-							width: 40,
-							alignItems: "center",
-							justifyContent: "center",
-							borderRadius: 20,
-						}}
+						style={styles.currentDateButton}
 					>
 						<MaterialIcons name="today" size={24} color={getTheme().header} />
 					</Pressable>
@@ -127,7 +121,9 @@ export default function Calendar({
 								{
 									backgroundColor: currentMonth
 										.date(i + 1)
-										.isSame(selectedDate, "day")
+										.isSame(moment(), "day")
+										? getTheme().accent
+										: currentMonth.date(i + 1).isSame(selectedDate, "day")
 										? Appearance.getColorScheme() === "light"
 											? "#0001"
 											: "#fff1"
@@ -140,12 +136,14 @@ export default function Calendar({
 								style={[
 									styles.dayLabel,
 									{
-										color: planningData[
-											currentMonth
-												.clone()
-												.date(i + 1)
-												.format("YYYY-MM-DD")
-										]
+										color: currentMonth.date(i + 1).isSame(moment(), "day")
+											? getTheme().white
+											: planningData[
+													currentMonth
+														.clone()
+														.date(i + 1)
+														.format("YYYY-MM-DD")
+											  ]
 											? getTheme().darkGray
 											: getTheme().lightGray,
 									},
@@ -221,5 +219,12 @@ const styles = StyleSheet.create({
 		fontSize: 16,
 		color: getTheme().darkGray,
 		fontFamily: "Rubik-Regular",
+	},
+	currentDateButton: {
+		height: 40,
+		width: 40,
+		alignItems: "center",
+		justifyContent: "center",
+		borderRadius: 20,
 	},
 });
