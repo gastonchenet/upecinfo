@@ -13,7 +13,7 @@ import { MaterialIcons } from "@expo/vector-icons";
 import { useFonts } from "expo-font";
 import { hideAsync, preventAutoHideAsync } from "expo-splash-screen";
 import type { MealEvent, Planning, PlanningEvent } from "./types/Planning";
-import moment, { Moment } from "moment";
+import moment, { type Moment } from "moment";
 import "moment/locale/fr";
 import getTheme from "./utils/getTheme";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
