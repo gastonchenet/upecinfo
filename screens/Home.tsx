@@ -9,7 +9,7 @@ import {
 	StatusBar as StatusBarRN,
 } from "react-native";
 import moment, { Moment } from "moment";
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { MaterialIcons } from "@expo/vector-icons";
 import RipplePressable from "../components/RipplePressable";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
@@ -77,6 +77,7 @@ export default function Home({
 		params: { planningData },
 	},
 }: HomeOptions) {
+	const [time, setTime] = useState(moment());
 	const [selectedDate, setSelectedDate] = useState(moment());
 	const [calendarDeployed, setCalendarDeployed] = useState(false);
 
@@ -96,6 +97,11 @@ export default function Home({
 		setDayEvents(events);
 		setMealEvent(getMealEvent(events));
 	}
+
+	useEffect(() => {
+		const interval = setInterval(() => setTime(moment()), 1000);
+		return () => clearInterval(interval);
+	}, []);
 
 	return (
 		<GestureHandlerRootView style={styles.container}>
@@ -305,8 +311,7 @@ export default function Home({
 									height: 2,
 									zIndex: 100,
 									top:
-										(moment().diff(selectedDate.startOf("day"), "minutes") /
-											60 -
+										(moment().diff(time.startOf("day"), "minutes") / 60 -
 											PLANNING_START) *
 										100,
 								}}
@@ -322,8 +327,7 @@ export default function Home({
 									left: 50,
 									transform: [{ translateY: -5 }, { translateX: -5.5 }],
 									top:
-										(moment().diff(selectedDate.startOf("day"), "minutes") /
-											60 -
+										(moment().diff(time.startOf("day"), "minutes") / 60 -
 											PLANNING_START) *
 										100,
 								}}
