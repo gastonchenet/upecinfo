@@ -35,6 +35,6 @@ export default {
 		header: "#e5e5e5",
 		yellow: "#f5e076",
 		yellowBorder: "#f5e076aa",
-		yellowFill: "#f5e07633",
+		yellowFill: "#f5e07611",
 	},
 };

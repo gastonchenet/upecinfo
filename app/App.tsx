@@ -7,6 +7,10 @@ import {
 	Text,
 	View,
 	StatusBar as StatusBarRN,
+	Pressable,
+	Appearance,
+	type ColorSchemeName,
+	Switch,
 } from "react-native";
 import { EventProvider } from "react-native-outside-press";
 import { MaterialIcons } from "@expo/vector-icons";
@@ -20,6 +24,7 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { StatusBar } from "expo-status-bar";
 import RipplePressable from "./components/RipplePressable";
 import Calendar from "./components/Calendar";
+import fetchPlanning from "./utils/fetchPlanning";
 
 const HSL_ROTAION = 360;
 const MAX_COLORS = 12;
@@ -28,9 +33,7 @@ const PLANNING_END = 20;
 const MIN_MEAL_TIME = 10;
 const MAX_MEAL_TIME = 14;
 const MIN_MEAL_DURATION = 30;
-
-const PLANNING_URL =
-	"https://ade.u-pec.fr/jsp/custom/modules/plannings/anonymous_cal.jsp";
+const DEFAULT_PAGE = 0;
 
 const PLANNING_SEM1_ID =
 	"12eb8a95bf5cdd01a0664d355b3b147b84d8496df83298c294124e3689344ff0692613b21192e5f0e0b7c5a5601c933d03e6e404a2ef1e51fca07eaab12391238ffb1be556a74e192cd70cd02544128bc0d6a1a7ae54e41df012f10f27e4ca97,1";
@@ -41,13 +44,11 @@ const PLANNING_SEM2_ID =
 preventAutoHideAsync();
 moment.locale("fr");
 
-function getItemValue(raw: string) {
-	return raw.split(":")[1];
-}
+let alreadyAnimated = false;
 
 function stringToColor(str: string) {
 	const hash = str.split("").reduce((acc, char) => {
-		acc = (acc << 5) - acc + char.charCodeAt(0) ** 10;
+		acc = (acc << 5) - acc + char.charCodeAt(0) ** 3;
 		return acc & acc;
 	}, 0);
 
@@ -84,84 +85,13 @@ function getMealEvent(dayEvents: PlanningEvent[]) {
 	return sortedHoles[0] ?? null;
 }
 
-async function fetchPlanning(planningId: string) {
-	const days: Planning = {};
-
-	const url = new URL(PLANNING_URL);
-	url.searchParams.set("data", planningId);
-
-	const res = await fetch(url.toString(), {
-		method: "GET",
-		headers: {
-			Accept: "*/*",
-			"User-Agent": "UpecPlanning/1.0 (com.ducassoulet.planning)",
-		},
-	});
-
-	if (!res.ok) return {};
-	const rawData = await res.text();
-	const data: PlanningEvent[] = [];
-
-	rawData.split("BEGIN:VEVENT").forEach((event) => {
-		if (!event.includes("END:VEVENT")) return;
-
-		const lines = event.split("\n");
-		const start = lines.find((line) => line.startsWith("DTSTART:"));
-		const end = lines.find((line) => line.startsWith("DTEND:"));
-		const summary = lines.find((line) => line.startsWith("SUMMARY:"));
-		const location = lines.find((line) => line.startsWith("LOCATION:"));
-		const description = lines.find((line) => line.startsWith("DESCRIPTION:"));
-
-		if (!start || !end || !summary || !location || !description) return;
-
-		const parsedStart = moment(
-			getItemValue(start),
-			"YYYYMMDDTHHmmssZ"
-		).utcOffset("+01:00");
-
-		const parsedEnd = moment(getItemValue(end), "YYYYMMDDTHHmmssZ").utcOffset(
-			"+01:00"
-		);
-
-		const parsedLocation = getItemValue(location)
-			.replace(/\s*\(\d+\)/g, "")
-			.trim();
-
-		const parsedTeacher = getItemValue(description)
-			.split(/(?:\\n)+/)
-			.at(-2);
-
-		if (!parsedTeacher) return;
-
-		data.push({
-			start: parsedStart.toISOString(),
-			end: parsedEnd.toISOString(),
-			summary: getItemValue(summary),
-			location: parsedLocation,
-			teacher: parsedTeacher,
-		});
-	});
-
-	data
-		.sort((a, b) => moment(a.start).valueOf() - moment(b.start).valueOf())
-		.forEach((event) => {
-			const date = moment(event.start).format("YYYY-MM-DD");
-			if (!days[date]) days[date] = [];
-			days[date].push(event);
-		});
-
-	return days;
-}
-
 export default function App() {
 	const [loading, setLoading] = useState(true);
 	const [planningData, setPlanningData] = useState<Planning>({});
 	const [time, setTime] = useState(moment());
 	const [selectedDate, setSelectedDate] = useState(moment());
 	const [calendarDeployed, setCalendarDeployed] = useState(false);
-
 	const [dayEvents, setDayEvents] = useState<PlanningEvent[]>([]);
-
 	const [mealEvent, setMealEvent] = useState<MealEvent | null>(null);
 
 	function changeDay(date: Moment) {
@@ -219,7 +149,58 @@ export default function App() {
 						<Text style={styles.appDescription}>Filière informatique</Text>
 					</View>
 				</View>
-				<View style={styles.container}>
+				<ScrollView
+					style={styles.container}
+					showsHorizontalScrollIndicator={false}
+					bounces={false}
+					horizontal
+					pagingEnabled
+					ref={(ref) => {
+						if (alreadyAnimated) return;
+
+						ref?.scrollTo({
+							x: Dimensions.get("window").width * DEFAULT_PAGE,
+							animated: false,
+						});
+
+						alreadyAnimated = true;
+					}}
+				>
+					<View style={styles.settings}>
+						<View style={styles.subHead}>
+							<Text style={styles.subHeadDay}>Paramètres de l'application</Text>
+						</View>
+						<View
+							style={{
+								flexDirection: "row",
+								alignItems: "center",
+								paddingHorizontal: 15,
+								gap: 10,
+							}}
+						>
+							<Text
+								style={{
+									fontFamily: "Rubik-Regular",
+									color: getTheme().header,
+								}}
+							>
+								Thème Sombre
+							</Text>
+							<Text
+								style={{
+									fontFamily: "Rubik-Regular",
+									fontSize: 12,
+									color: getTheme().gray,
+								}}
+							>
+								(en développement)
+							</Text>
+							<Switch
+								value={Appearance.getColorScheme() === "dark"}
+								style={{ marginLeft: "auto" }}
+							/>
+						</View>
+					</View>
 					<View style={styles.dayPlanning}>
 						<View style={styles.subHead}>
 							<View style={styles.subHeadDayInfo}>
@@ -435,7 +416,7 @@ export default function App() {
 							</View>
 						</ScrollView>
 					</View>
-				</View>
+				</ScrollView>
 			</GestureHandlerRootView>
 		</EventProvider>
 	);
@@ -448,6 +429,11 @@ const styles = StyleSheet.create({
 	},
 	dayPlanning: {
 		flex: 1,
+		width: Dimensions.get("window").width,
+	},
+	settings: {
+		flex: 1,
+		width: Dimensions.get("window").width,
 	},
 	planningContainer: {
 		backgroundColor: getTheme().primary,
@@ -531,7 +517,7 @@ const styles = StyleSheet.create({
 	},
 	subHead: {
 		paddingHorizontal: 15,
-		paddingVertical: 5,
+		height: 45,
 		backgroundColor: getTheme().accentDark,
 		alignItems: "center",
 		justifyContent: "space-between",
