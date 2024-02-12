@@ -7,10 +7,12 @@ import {
 	Text,
 	View,
 	StatusBar as StatusBarRN,
-	Pressable,
 	Appearance,
-	type ColorSchemeName,
 	Switch,
+	ActivityIndicator,
+	Pressable,
+	TouchableWithoutFeedback,
+	Keyboard,
 } from "react-native";
 import { EventProvider } from "react-native-outside-press";
 import { MaterialIcons } from "@expo/vector-icons";
@@ -20,11 +22,29 @@ import type { MealEvent, Planning, PlanningEvent } from "./types/Planning";
 import moment, { type Moment } from "moment";
 import "moment/locale/fr";
 import getTheme from "./utils/getTheme";
-import { GestureHandlerRootView } from "react-native-gesture-handler";
+import {
+	GestureHandlerRootView,
+	TextInput,
+} from "react-native-gesture-handler";
 import { StatusBar } from "expo-status-bar";
 import RipplePressable from "./components/RipplePressable";
 import Calendar from "./components/Calendar";
 import fetchPlanning from "./utils/fetchPlanning";
+import { Resource, Semester, Evaluation } from "./types/Notes";
+import fetchNotes from "./utils/fetchNotes";
+import { deleteItemAsync, getItemAsync, setItemAsync } from "expo-secure-store";
+import app from "./app.json";
+import BottomModal from "./components/BottomModal";
+
+enum ColorType {
+	Pastel,
+	Vibrant,
+}
+
+type Auth = {
+	username: string;
+	password: string;
+};
 
 const HSL_ROTAION = 360;
 const MAX_COLORS = 12;
@@ -33,28 +53,37 @@ const PLANNING_END = 20;
 const MIN_MEAL_TIME = 10;
 const MAX_MEAL_TIME = 14;
 const MIN_MEAL_DURATION = 30;
-const DEFAULT_PAGE = 0;
+const DEFAULT_PAGE = 1;
 
-const PLANNING_SEM1_ID =
-	"12eb8a95bf5cdd01a0664d355b3b147b84d8496df83298c294124e3689344ff0692613b21192e5f0e0b7c5a5601c933d03e6e404a2ef1e51fca07eaab12391238ffb1be556a74e192cd70cd02544128bc0d6a1a7ae54e41df012f10f27e4ca97,1";
-
-const PLANNING_SEM2_ID =
-	"c7467108d6e35146073b1b2fb9f87d9384d8496df83298c294124e3689344ff0692613b21192e5f0e0b7c5a5601c933d03e6e404a2ef1e51fca07eaab12391238ffb1be556a74e192cd70cd02544128bc0d6a1a7ae54e41df012f10f27e4ca97,1";
+const DefaultSettings = Object.freeze({
+	showDayIndicator: true,
+	showMealBounds: true,
+});
 
 preventAutoHideAsync();
 moment.locale("fr");
 
 let alreadyAnimated = false;
 
-function stringToColor(str: string) {
+function getDefaultSemester(semesters: Semester[]) {
+	const now = moment();
+	const semester = semesters.find((s) => now.isBetween(s.startDate, s.endDate));
+	if (!semester) return 0;
+
+	return semesters.indexOf(semester);
+}
+
+function stringToColor(str: string, type: ColorType, variation: number = 1) {
 	const hash = str.split("").reduce((acc, char) => {
-		acc = (acc << 5) - acc + char.charCodeAt(0) ** 3;
+		acc = (acc << 5) - acc + char.charCodeAt(0) ** variation;
 		return acc & acc;
 	}, 0);
 
 	const rotation = (hash % HSL_ROTAION) * (HSL_ROTAION / MAX_COLORS);
 
-	return `hsl(${rotation}, 90%, 75%)`;
+	return `hsl(${rotation}, ${type === ColorType.Pastel ? 90 : 50}%, ${
+		type === ColorType.Pastel ? 75 : 50
+	}%)`;
 }
 
 function getDayBounds(dayEvents: PlanningEvent[]) {
@@ -85,14 +114,66 @@ function getMealEvent(dayEvents: PlanningEvent[]) {
 	return sortedHoles[0] ?? null;
 }
 
+function getAverage(resources: Resource) {
+	const totalCoefficient = resources.evaluations.reduce(
+		(acc, e) => acc + e.coefficient,
+		0
+	);
+
+	const totalNote = resources.evaluations.reduce(
+		(acc, e) => acc + e.note * e.coefficient,
+		0
+	);
+
+	return totalNote / totalCoefficient;
+}
+
+function getSectionAverage(section: Resource[]) {
+	return section
+		.map((resource) => getAverage(resource))
+		.filter((average) => !isNaN(average))
+		.reduce((acc, average, i, arr) => {
+			acc += average;
+			if (i === arr.length - 1) acc /= arr.length;
+			return acc;
+		}, 0)
+		.toLocaleString("fr-FR", {
+			maximumFractionDigits: 2,
+			minimumFractionDigits: 2,
+		});
+}
+
 export default function App() {
-	const [loading, setLoading] = useState(true);
 	const [planningData, setPlanningData] = useState<Planning>({});
 	const [time, setTime] = useState(moment());
 	const [selectedDate, setSelectedDate] = useState(moment());
 	const [calendarDeployed, setCalendarDeployed] = useState(false);
 	const [dayEvents, setDayEvents] = useState<PlanningEvent[]>([]);
 	const [mealEvent, setMealEvent] = useState<MealEvent | null>(null);
+	const [semesters, setSemesters] = useState<Semester[]>([]);
+	const [selectedSemester, setSelectedSemester] = useState(0);
+	const [username, setUsername] = useState("");
+	const [password, setPassword] = useState("");
+	const [fetchingNotes, setFetchingNotes] = useState(false);
+	const [hasAuth, setHasAuth] = useState(false);
+	const [passwordVisible, setPasswordVisible] = useState(false);
+	const [disconnectModalVisible, setDisconnectModalVisible] = useState(false);
+	const [disconnecting, setDisconnecting] = useState(false);
+	const [settings, setSettings] = useState(DefaultSettings);
+	const [selectedNote, setSelectedNote] = useState<Evaluation | null>(null);
+	const [darkTheme, setDarkTheme] = useState(
+		Appearance.getColorScheme() === "dark"
+	);
+
+	const [errors, setErrors] = useState<{
+		username: string | null;
+		password: string | null;
+		global: string | null;
+	}>({
+		username: null,
+		password: null,
+		global: null,
+	});
 
 	function changeDay(date: Moment) {
 		setSelectedDate(date);
@@ -103,6 +184,63 @@ export default function App() {
 		setMealEvent(getMealEvent(events));
 	}
 
+	async function connect() {
+		if (username === "")
+			return setErrors({
+				username: "Champ requis.",
+				password: null,
+				global: null,
+			});
+
+		if (password === "")
+			return setErrors({
+				username: null,
+				password: "Champ requis.",
+				global: null,
+			});
+
+		setFetchingNotes(true);
+		const [success, semesters] = await fetchNotes(username, password);
+
+		setFetchingNotes(false);
+
+		if (!success) {
+			setPassword("");
+			return setErrors({
+				username: null,
+				password: null,
+				global: "Identifiant ou mot de passe invalide.",
+			});
+		}
+
+		await setItemAsync("auth", JSON.stringify({ username, password }));
+		setSemesters(semesters);
+		setSelectedSemester(getDefaultSemester(semesters));
+		setHasAuth(true);
+		setUsername("");
+		setPassword("");
+		setErrors({
+			username: null,
+			password: null,
+			global: null,
+		});
+	}
+
+	async function disconnect() {
+		setDisconnecting(true);
+		setHasAuth(false);
+		setSemesters([]);
+		setSelectedSemester(0);
+		await deleteItemAsync("auth");
+		setDisconnecting(false);
+		setDisconnectModalVisible(false);
+	}
+
+	function setSettingsValue(key: keyof typeof DefaultSettings, value: boolean) {
+		setSettings({ ...settings, [key]: value });
+		setItemAsync("settings", JSON.stringify({ ...settings, [key]: value }));
+	}
+
 	const [fontsLoaded] = useFonts({
 		"Rubik-Regular": require("./assets/fonts/Rubik-Regular.ttf"),
 		"Rubik-Italic": require("./assets/fonts/Rubik-Italic.ttf"),
@@ -111,18 +249,34 @@ export default function App() {
 	});
 
 	useEffect(() => {
-		Promise.all([
-			fetchPlanning(PLANNING_SEM1_ID),
-			fetchPlanning(PLANNING_SEM2_ID),
-		]).then((data) => {
-			const planningData = { ...data[0], ...data[1] };
-			setPlanningData(planningData);
+		getItemAsync("auth").then((data) => {
+			if (!data) return;
+			setHasAuth(true);
+			const auth: Auth = JSON.parse(data);
 
-			const events = planningData[moment().format("YYYY-MM-DD")] ?? [];
+			fetchNotes(auth.username, auth.password).then(([success, data]) => {
+				if (success) {
+					setSemesters(data);
+					setSelectedSemester(getDefaultSemester(data));
+				} else {
+					setHasAuth(false);
+					deleteItemAsync("auth");
+				}
+			});
+		});
+
+		getItemAsync("settings").then((data) => {
+			if (!data) return;
+			setSettings(JSON.parse(data));
+		});
+
+		fetchPlanning().then((data) => {
+			setPlanningData(data);
+
+			const events = data[moment().format("YYYY-MM-DD")] ?? [];
 
 			setDayEvents(events);
 			setMealEvent(getMealEvent(events));
-			setLoading(false);
 		});
 
 		const interval = setInterval(() => setTime(moment()), 1000);
@@ -130,29 +284,106 @@ export default function App() {
 	}, []);
 
 	const onLayoutRootView = useCallback(async () => {
-		if (!loading && fontsLoaded) return await hideAsync();
-	}, [loading, fontsLoaded]);
+		if (fontsLoaded) return await hideAsync();
+	}, [fontsLoaded]);
 
-	if (loading || !fontsLoaded) return null;
+	if (!fontsLoaded) return null;
 
 	return (
 		<EventProvider onLayout={onLayoutRootView}>
 			<GestureHandlerRootView style={styles.container}>
 				<StatusBar style="light" />
+				<BottomModal
+					title="Déconnection"
+					visible={disconnectModalVisible}
+					setVisible={setDisconnectModalVisible}
+				>
+					<Text style={styles.modalDescription}>
+						Es-tu sûr de vouloir te déconnecter ?
+					</Text>
+					<View style={styles.modalButtons}>
+						<RipplePressable
+							duration={500}
+							rippleColor="#0001"
+							style={[styles.modalButton, styles.modalButtonDanger]}
+							onPress={disconnect}
+						>
+							{disconnecting && (
+								<ActivityIndicator size="small" color={getTheme().white} />
+							)}
+							<Text
+								style={[styles.modalButtonText, styles.modalButtonDangerText]}
+							>
+								Déconnection
+							</Text>
+						</RipplePressable>
+						<RipplePressable
+							duration={500}
+							rippleColor="#0001"
+							style={styles.modalButton}
+							onPress={() => setDisconnectModalVisible(false)}
+						>
+							<Text style={styles.modalButtonText}>Annuler</Text>
+						</RipplePressable>
+					</View>
+				</BottomModal>
+				<BottomModal
+					title={selectedNote?.title ?? "Note"}
+					visible={!!selectedNote}
+					setVisible={() => setSelectedNote(null)}
+				>
+					<Text style={styles.evalItem}>
+						<Text style={styles.evalItemLabel}>Note</Text>
+						{"  "}
+						{selectedNote?.note.toLocaleString("fr-FR", {
+							maximumFractionDigits: 2,
+							minimumFractionDigits: 2,
+						})}{" "}
+						(Coef {selectedNote?.coefficient.toLocaleString("fr-FR")})
+					</Text>
+					<Text style={styles.evalItem}>
+						<Text style={styles.evalItemLabel}>Moyenne de la classe</Text>
+						{"  "}
+						{selectedNote?.average.toLocaleString("fr-FR", {
+							maximumFractionDigits: 2,
+							minimumFractionDigits: 2,
+						})}
+					</Text>
+					<Text style={styles.evalItem}>
+						<Text style={styles.evalItemLabel}>Note Minimale</Text>
+						{"  "}
+						{selectedNote?.min_note.toLocaleString("fr-FR", {
+							maximumFractionDigits: 2,
+							minimumFractionDigits: 2,
+						})}
+					</Text>
+					<Text style={styles.evalItem}>
+						<Text style={styles.evalItemLabel}>Note Maximale</Text>
+						{"  "}
+						{selectedNote?.max_note.toLocaleString("fr-FR", {
+							maximumFractionDigits: 2,
+							minimumFractionDigits: 2,
+						})}
+					</Text>
+					<Text style={styles.dateText}>
+						{selectedNote?.date
+							? moment(selectedNote.date).format("ddd d MMM YYYY, HH[h]mm")
+							: "Date non renseignée"}
+					</Text>
+				</BottomModal>
 				<View style={styles.head}>
 					<Image
 						source={require("./assets/images/icon.png")}
 						style={styles.appIcon}
 					/>
 					<View style={styles.headText}>
-						<Text style={styles.appTitle}>UPEC Planning</Text>
+						<Text style={styles.appTitle}>{app.expo.name}</Text>
 						<Text style={styles.appDescription}>Filière informatique</Text>
 					</View>
 				</View>
 				<ScrollView
 					style={styles.container}
 					showsHorizontalScrollIndicator={false}
-					bounces={false}
 					horizontal
 					pagingEnabled
 					ref={(ref) => {
@@ -165,43 +396,114 @@ export default function App() {
 
 						alreadyAnimated = true;
 					}}
+					onScroll={() => {
+						Keyboard.dismiss();
+						setDisconnectModalVisible(false);
+						setCalendarDeployed(false);
+						setSelectedNote(null);
+					}}
 				>
-					<View style={styles.settings}>
+					<View style={styles.page}>
 						<View style={styles.subHead}>
-							<Text style={styles.subHeadDay}>Paramètres de l'application</Text>
+							<Text style={styles.subHeadDay}>Paramètres</Text>
 						</View>
-						<View
-							style={{
-								flexDirection: "row",
-								alignItems: "center",
-								paddingHorizontal: 15,
-								gap: 10,
-							}}
-						>
-							<Text
-								style={{
-									fontFamily: "Rubik-Regular",
-									color: getTheme().header,
-								}}
-							>
-								Thème Sombre
-							</Text>
-							<Text
-								style={{
-									fontFamily: "Rubik-Regular",
-									fontSize: 12,
-									color: getTheme().gray,
-								}}
-							>
-								(en développement)
-							</Text>
-							<Switch
-								value={Appearance.getColorScheme() === "dark"}
-								style={{ marginLeft: "auto" }}
-							/>
+						<View style={styles.settingContainer}>
+							<View style={styles.settingCategoryTitleContainer}>
+								<Image
+									source={require("./assets/images/color-circle.png")}
+									style={styles.settingCategoryTitleIcon}
+								/>
+								<Text style={styles.settingCategoryTitle}>Apparence</Text>
+							</View>
+							<View style={styles.settingItem}>
+								<Text style={styles.settingItemTitle}>Thème Sombre</Text>
+								<Text style={styles.settingItemDescription}>
+									(en développement)
+								</Text>
+								<Switch
+									value={darkTheme}
+									onChange={() => {
+										Appearance.setColorScheme(darkTheme ? "light" : "dark");
+										setDarkTheme(!darkTheme);
+									}}
+									style={styles.settingItemSwitch}
+									thumbColor={
+										darkTheme ? getTheme().accent : getTheme().lightGray
+									}
+									trackColor={{
+										false: getTheme().light,
+										true: getTheme().accentDark,
+									}}
+								/>
+							</View>
+							<View style={styles.settingItem}>
+								<Text style={styles.settingItemTitle}>Indicateur de jour</Text>
+								<Switch
+									value={settings.showDayIndicator}
+									onChange={() =>
+										setSettingsValue(
+											"showDayIndicator",
+											!settings.showDayIndicator
+										)
+									}
+									style={styles.settingItemSwitch}
+									thumbColor={
+										settings.showDayIndicator
+											? getTheme().accent
+											: getTheme().lightGray
+									}
+									trackColor={{
+										false: getTheme().light,
+										true: getTheme().accentLight,
+									}}
+								/>
+							</View>
+							<View style={styles.settingItem}>
+								<Text style={styles.settingItemTitle}>Pause déjeuner</Text>
+								<Switch
+									value={settings.showMealBounds}
+									onChange={() =>
+										setSettingsValue("showMealBounds", !settings.showMealBounds)
+									}
+									style={styles.settingItemSwitch}
+									thumbColor={
+										settings.showMealBounds
+											? getTheme().accent
+											: getTheme().lightGray
+									}
+									trackColor={{
+										false: getTheme().light,
+										true: getTheme().accentLight,
+									}}
+								/>
+							</View>
+						</View>
+						<View style={styles.settingContainer}>
+							<View style={styles.settingCategoryTitleContainer}>
+								<Image
+									source={require("./assets/images/link.png")}
+									style={styles.settingCategoryTitleIcon}
+								/>
+								<Text style={styles.settingCategoryTitle}>Connexion</Text>
+							</View>
+							<View style={styles.settingItem}>
+								<Pressable
+									style={styles.settingButton}
+									onPress={() => setDisconnectModalVisible(true)}
+								>
+									<MaterialIcons
+										name="logout"
+										size={18}
+										color={getTheme().red}
+									/>
+									<Text style={styles.settingButtonTextDanger}>
+										Déconnexion
+									</Text>
+								</Pressable>
+							</View>
 						</View>
 					</View>
-					<View style={styles.dayPlanning}>
+					<View style={styles.page}>
 						<View style={styles.subHead}>
 							<View style={styles.subHeadDayInfo}>
 								<Text style={styles.subHeadDay}>
@@ -317,7 +619,11 @@ export default function App() {
 													) /
 														60) *
 													100,
-												borderLeftColor: stringToColor(event.teacher),
+												borderLeftColor: stringToColor(
+													event.teacher,
+													ColorType.Pastel,
+													3
+												),
 											},
 										]}
 									>
@@ -350,7 +656,7 @@ export default function App() {
 										<Text style={styles.room}>{event.location}</Text>
 									</View>
 								))}
-								{mealEvent && (
+								{settings.showMealBounds && mealEvent && (
 									<View
 										style={[
 											styles.mealTimeBox,
@@ -380,41 +686,425 @@ export default function App() {
 										<Text style={styles.mealTimeText}>Pause déjeuner</Text>
 									</View>
 								)}
-								{time.isSame(selectedDate, "day") && (
-									<React.Fragment>
-										<View
-											style={{
-												position: "absolute",
-												backgroundColor: "#6da6e8",
-												width: Dimensions.get("window").width,
-												height: 2,
-												zIndex: 100,
-												top:
-													(moment().diff(time.startOf("day"), "minutes") / 60 -
-														PLANNING_START) *
-													100,
-											}}
-										/>
-										<View
-											style={{
-												position: "absolute",
-												backgroundColor: "#6da6e8",
-												width: 12,
-												height: 12,
-												borderRadius: 6,
-												zIndex: 100,
-												left: 50,
-												transform: [{ translateY: -5 }, { translateX: -5.5 }],
-												top:
-													(moment().diff(time.startOf("day"), "minutes") / 60 -
-														PLANNING_START) *
-													100,
-											}}
-										/>
-									</React.Fragment>
-								)}
+								{settings.showDayIndicator &&
+									time.isSame(selectedDate, "day") && (
+										<React.Fragment>
+											<View
+												style={[
+													styles.dayProgressionLine,
+													{
+														top:
+															(moment().diff(time.startOf("day"), "seconds") /
+																60000 -
+																PLANNING_START) *
+															100,
+													},
+												]}
+											/>
+											<View
+												style={[
+													styles.dayProgressionDot,
+													{
+														top:
+															(moment().diff(time.startOf("day"), "seconds") /
+																60000 -
+																PLANNING_START) *
+															100,
+													},
+												]}
+											/>
+										</React.Fragment>
+									)}
 							</View>
 						</ScrollView>
+					</View>
+					<View style={styles.page}>
+						{!hasAuth && semesters.length === 0 && (
+							<React.Fragment>
+								<View style={styles.subHead}>
+									<Text style={styles.subHeadDay}>Notes</Text>
+								</View>
+								<View style={styles.connectionPage}>
+									<View style={styles.noteHeader}>
+										<Text style={styles.noteHeaderLabel}>Connection</Text>
+										<Text style={styles.meanText}>
+											Veuillez entrer vos identifiants pour accéder à vos notes.
+										</Text>
+									</View>
+									<View style={styles.form}>
+										<View>
+											<View style={styles.fieldTitleContainer}>
+												<MaterialIcons
+													name="person"
+													size={16}
+													color={getTheme().header80}
+												/>
+												<Text style={styles.fieldTitle}>Identifiant</Text>
+											</View>
+											<View style={styles.fieldContainer}>
+												<TextInput
+													style={styles.fieldInput}
+													autoCapitalize="none"
+													autoCorrect={false}
+													underlineColorAndroid="transparent"
+													placeholder="Entrez votre identifiant"
+													placeholderTextColor={getTheme().lightGray}
+													value={username}
+													onChangeText={setUsername}
+												/>
+											</View>
+											{errors.username && (
+												<Text style={styles.errorText}>{errors.username}</Text>
+											)}
+										</View>
+										<View>
+											<View style={styles.fieldTitleContainer}>
+												<MaterialIcons
+													name="lock"
+													size={16}
+													color={getTheme().header80}
+												/>
+												<Text style={styles.fieldTitle}>Mot de passe</Text>
+											</View>
+											<View style={styles.fieldContainer}>
+												<TextInput
+													style={styles.fieldInput}
+													autoCapitalize="none"
+													autoCorrect={false}
+													underlineColorAndroid="transparent"
+													placeholder="Entrez votre mot de passe"
+													placeholderTextColor={getTheme().lightGray}
+													secureTextEntry={!passwordVisible}
+													value={password}
+													onChangeText={setPassword}
+												/>
+												<Pressable
+													onPress={() => setPasswordVisible(!passwordVisible)}
+													style={styles.passwordVisibility}
+												>
+													<MaterialIcons
+														name={
+															passwordVisible ? "visibility" : "visibility-off"
+														}
+														size={20}
+														color={getTheme().header80}
+													/>
+												</Pressable>
+											</View>
+											{errors.password && (
+												<Text style={styles.errorText}>{errors.password}</Text>
+											)}
+										</View>
+										<RipplePressable
+											duration={500}
+											rippleColor="#fff3"
+											onPress={connect}
+											style={styles.connectButton}
+										>
+											{fetchingNotes && (
+												<ActivityIndicator
+													size="small"
+													color={getTheme().white}
+												/>
+											)}
+											<MaterialIcons
+												name="login"
+												size={20}
+												color={getTheme().white80}
+											/>
+											<Text style={styles.connectButtonText}>Se connecter</Text>
+										</RipplePressable>
+										{errors.global && (
+											<Text style={styles.errorText}>{errors.global}</Text>
+										)}
+									</View>
+								</View>
+							</React.Fragment>
+						)}
+						{hasAuth && semesters.length === 0 && (
+							<View style={styles.connectionPage}>
+								<View style={styles.subHead}>
+									<Text style={styles.subHeadDay}>Chargement...</Text>
+								</View>
+								<View style={styles.loadingContainer}>
+									<ActivityIndicator size="large" color={getTheme().accent} />
+								</View>
+							</View>
+						)}
+						{semesters.length > 0 && (
+							<React.Fragment>
+								<View style={styles.subHead}>
+									<View style={styles.subHeadDayInfo}>
+										<Text style={styles.subHeadDay}>
+											Semestre {semesters[selectedSemester].num}
+										</Text>
+										<Text style={styles.subHeadDayBounds}>
+											({semesters[selectedSemester].rank}/
+											{semesters[selectedSemester].groupSize} de la promotion)
+										</Text>
+									</View>
+									<View style={styles.subHeadDayInfo}>
+										<RipplePressable
+											duration={500}
+											rippleColor="#0001"
+											style={styles.subHeadButton}
+											onPress={() =>
+												setSelectedSemester(Math.max(selectedSemester - 1, 0))
+											}
+										>
+											<MaterialIcons
+												name="keyboard-arrow-left"
+												size={24}
+												color="white"
+											/>
+										</RipplePressable>
+										<RipplePressable
+											duration={500}
+											rippleColor="#0001"
+											style={styles.subHeadButton}
+											onPress={() =>
+												setSelectedSemester(
+													Math.min(selectedSemester + 1, semesters.length - 1)
+												)
+											}
+										>
+											<MaterialIcons
+												name="keyboard-arrow-right"
+												size={24}
+												color="white"
+											/>
+										</RipplePressable>
+									</View>
+								</View>
+								<ScrollView
+									showsVerticalScrollIndicator={false}
+									contentContainerStyle={styles.resourceContainer}
+								>
+									<View style={styles.noteHeader}>
+										<Text style={styles.noteHeaderLabel}>Moyennes</Text>
+										<Text style={styles.meanText}>
+											Voici vos moyennes pour le semestre{" "}
+											{semesters[selectedSemester].num}.
+										</Text>
+									</View>
+									<View style={styles.meanContainer}>
+										<View style={styles.userMeanContent}>
+											<Text style={styles.userMeanLabel}>Moyenne générale</Text>
+											<Text style={styles.userMeanValue}>
+												{semesters[selectedSemester].note.toLocaleString(
+													"fr-FR",
+													{
+														maximumFractionDigits: 2,
+														minimumFractionDigits: 2,
+													}
+												)}
+											</Text>
+										</View>
+										<View style={styles.notesRow}>
+											<View style={styles.classMeanContent}>
+												<Text style={styles.userMeanLabel}>Maximum</Text>
+												<Text style={styles.userMeanValue}>
+													{semesters[selectedSemester].max_note.toLocaleString(
+														"fr-FR",
+														{
+															maximumFractionDigits: 2,
+															minimumFractionDigits: 2,
+														}
+													)}
+												</Text>
+											</View>
+											<View style={styles.classMeanContent}>
+												<Text style={styles.userMeanLabel}>Classe</Text>
+												<Text style={styles.userMeanValue}>
+													{semesters[selectedSemester].average.toLocaleString(
+														"fr-FR",
+														{
+															maximumFractionDigits: 2,
+															minimumFractionDigits: 2,
+														}
+													)}
+												</Text>
+											</View>
+											<View style={styles.classMeanContent}>
+												<Text style={styles.userMeanLabel}>Minimum</Text>
+												<Text style={styles.userMeanValue}>
+													{semesters[selectedSemester].min_note.toLocaleString(
+														"fr-FR",
+														{
+															maximumFractionDigits: 2,
+															minimumFractionDigits: 2,
+														}
+													)}
+												</Text>
+											</View>
+										</View>
+									</View>
+									<View style={styles.noteHeader}>
+										<Text style={styles.noteHeaderLabel}>Matières</Text>
+										<Text style={styles.meanText}>
+											Moyenne :{" "}
+											{getSectionAverage(
+												semesters[selectedSemester].resources
+											) || "~"}
+										</Text>
+									</View>
+									<View style={styles.classes}>
+										{semesters[selectedSemester].resources.map(
+											(resource, i) => (
+												<View key={i} style={styles.class}>
+													<View
+														style={[
+															styles.classHeader,
+															{ backgroundColor: getTheme().blue },
+														]}
+													>
+														<Text style={styles.average}>
+															{resource.evaluations.length
+																? getAverage(resource).toLocaleString("fr-FR", {
+																		maximumFractionDigits: 2,
+																		minimumFractionDigits: 2,
+																  })
+																: "~"}
+														</Text>
+														<Text style={styles.resourceTitle}>
+															{resource.title}
+														</Text>
+													</View>
+													<View style={styles.notes}>
+														{resource.evaluations.length === 0 && (
+															<Text style={styles.noteContent}>
+																Aucune note pour cette matière
+															</Text>
+														)}
+														{resource.evaluations.map((evaluation, j) => (
+															<Pressable
+																onPress={() => setSelectedNote(evaluation)}
+																key={j}
+																style={[
+																	styles.note,
+																	{
+																		borderBottomWidth:
+																			evaluation.date &&
+																			moment(evaluation.date).isSame(
+																				moment(),
+																				"day"
+																			)
+																				? 2
+																				: 0,
+																	},
+																]}
+															>
+																<Text
+																	style={[
+																		styles.noteContent,
+																		{
+																			fontFamily:
+																				evaluation.note < 10
+																					? "Rubik-Bold"
+																					: "Rubik-Regular",
+																		},
+																	]}
+																>
+																	{evaluation.note.toLocaleString("fr-FR", {
+																		maximumFractionDigits: 2,
+																		minimumFractionDigits: 0,
+																	})}
+																</Text>
+																{evaluation.coefficient !== 1 && (
+																	<Text style={styles.coef}>
+																		({evaluation.coefficient})
+																	</Text>
+																)}
+															</Pressable>
+														))}
+													</View>
+												</View>
+											)
+										)}
+									</View>
+									<View style={styles.noteHeader}>
+										<Text style={styles.noteHeaderLabel}>SAÉ</Text>
+										<Text style={styles.meanText}>
+											Moyenne :{" "}
+											{getSectionAverage(semesters[selectedSemester].saes) ||
+												"~"}
+										</Text>
+									</View>
+									<View style={styles.classes}>
+										{semesters[selectedSemester].saes.map((resource, i) => (
+											<View key={i} style={styles.class}>
+												<View
+													style={[
+														styles.classHeader,
+														{ backgroundColor: getTheme().pink },
+													]}
+												>
+													<Text style={styles.average}>
+														{resource.evaluations.length
+															? getAverage(resource).toLocaleString("fr-FR", {
+																	maximumFractionDigits: 2,
+																	minimumFractionDigits: 2,
+															  })
+															: "~"}
+													</Text>
+													<Text style={styles.resourceTitle}>
+														{resource.title}
+													</Text>
+												</View>
+												<View style={styles.notes}>
+													{resource.evaluations.length === 0 && (
+														<Text style={styles.noteContent}>
+															Aucune note pour cette matière
+														</Text>
+													)}
+													{resource.evaluations.map((evaluation, j) => (
+														<Pressable
+															onPress={() => setSelectedNote(evaluation)}
+															key={j}
+															style={[
+																styles.note,
+																{
+																	borderBottomWidth:
+																		evaluation.date &&
+																		moment(evaluation.date).isSame(
+																			moment(),
+																			"day"
+																		)
+																			? 2
+																			: 0,
+																},
+															]}
+														>
+															<Text
+																style={[
+																	styles.noteContent,
+																	{
+																		fontFamily:
+																			evaluation.note < 10
+																				? "Rubik-Bold"
+																				: "Rubik-Regular",
+																	},
+																]}
+															>
+																{evaluation.note.toLocaleString("fr-FR", {
+																	maximumFractionDigits: 2,
+																	minimumFractionDigits: 0,
+																})}
+															</Text>
+															{evaluation.coefficient !== 1 && (
+																<Text style={styles.coef}>
+																	({evaluation.coefficient})
+																</Text>
+															)}
+														</Pressable>
+													))}
+												</View>
+											</View>
+										))}
+									</View>
+								</ScrollView>
+							</React.Fragment>
+						)}
 					</View>
 				</ScrollView>
 			</GestureHandlerRootView>
@@ -427,11 +1117,7 @@ const styles = StyleSheet.create({
 		flex: 1,
 		backgroundColor: getTheme().primary,
 	},
-	dayPlanning: {
-		flex: 1,
-		width: Dimensions.get("window").width,
-	},
-	settings: {
+	page: {
 		flex: 1,
 		width: Dimensions.get("window").width,
 	},
@@ -594,5 +1280,296 @@ const styles = StyleSheet.create({
 		color: getTheme().yellow,
 		fontSize: 14,
 		fontFamily: "Rubik-Italic",
+	},
+	classes: {
+		paddingHorizontal: 15,
+		paddingBottom: 20,
+		gap: 20,
+	},
+	class: {
+		backgroundColor: getTheme().secondary,
+		borderRadius: 6,
+	},
+	classHeader: {
+		padding: 10,
+		flexDirection: "row",
+		gap: 12,
+		alignItems: "center",
+		borderRadius: 6,
+	},
+	average: {
+		fontSize: 12,
+		fontFamily: "Rubik-Regular",
+		color: getTheme().black,
+		width: 45,
+		paddingVertical: 5,
+		textAlign: "center",
+		backgroundColor: getTheme().white,
+		borderRadius: 5,
+	},
+	notes: {
+		paddingVertical: 15,
+		paddingHorizontal: 20,
+		flexWrap: "wrap",
+		flexDirection: "row",
+		gap: 25,
+	},
+	note: {
+		flexDirection: "row",
+		gap: 5,
+		padding: 2,
+		borderBottomColor: getTheme().lightBlue,
+	},
+	noteContent: {
+		color: getTheme().header80,
+	},
+	coef: {
+		color: getTheme().gray,
+		fontSize: 10,
+	},
+	resourceTitle: {
+		fontSize: 14,
+		color: getTheme().white,
+		flex: 1,
+		fontFamily: "Rubik-Regular",
+		lineHeight: 21,
+	},
+	resourceContainer: {
+		gap: 10,
+	},
+	meanText: {
+		fontSize: 12,
+		color: getTheme().header80,
+		fontFamily: "Rubik-Italic",
+	},
+	noteHeader: {
+		paddingVertical: 15,
+		paddingHorizontal: 20,
+	},
+	noteHeaderLabel: {
+		fontSize: 20,
+		color: getTheme().header,
+		fontFamily: "Rubik-Bold",
+	},
+	meanContainer: {
+		paddingBottom: 15,
+		paddingHorizontal: 20,
+		gap: 10,
+	},
+	userMeanContent: {
+		flexDirection: "row",
+		backgroundColor: getTheme().secondary,
+		paddingVertical: 10,
+		paddingHorizontal: 15,
+		borderRadius: 6,
+		alignItems: "center",
+	},
+	userMeanLabel: {
+		fontSize: 14,
+		color: getTheme().header80,
+		fontFamily: "Rubik-Regular",
+		flex: 1,
+	},
+	userMeanValue: {
+		color: getTheme().header,
+		fontFamily: "Rubik-Bold",
+		fontSize: 14,
+	},
+	classMeanContent: {
+		flex: 1,
+		alignItems: "center",
+		backgroundColor: getTheme().secondary,
+		paddingVertical: 10,
+		paddingHorizontal: 15,
+		borderRadius: 6,
+	},
+	notesRow: {
+		flexDirection: "row",
+		gap: 10,
+	},
+	connectionPage: {
+		flex: 1,
+	},
+	connectionHead: {
+		padding: 15,
+	},
+	connectButton: {
+		paddingVertical: 14,
+		marginTop: "auto",
+		backgroundColor: getTheme().accent,
+		flexDirection: "row",
+		alignItems: "center",
+		justifyContent: "center",
+		borderRadius: 10,
+		gap: 10,
+	},
+	connectButtonText: {
+		fontFamily: "Rubik-Bold",
+		color: getTheme().white,
+	},
+	errorText: {
+		color: getTheme().red,
+		fontSize: 12,
+		marginLeft: 5,
+	},
+	fieldTitle: {
+		fontFamily: "Rubik-Regular",
+		color: getTheme().header80,
+		fontSize: 15,
+		marginTop: 2,
+	},
+	fieldTitleContainer: {
+		flexDirection: "row",
+		alignItems: "center",
+		marginBottom: 4,
+		marginLeft: 8,
+		gap: 5,
+	},
+	fieldContainer: {
+		borderWidth: 1,
+		borderColor: getTheme().borderColor,
+		borderRadius: 10,
+		marginBottom: 5,
+		flexDirection: "row",
+		gap: 5,
+	},
+	fieldInput: {
+		flex: 1,
+		fontFamily: "Rubik-Regular",
+		paddingHorizontal: 15,
+		paddingVertical: 10,
+		color: getTheme().header,
+	},
+	passwordVisibility: {
+		alignItems: "center",
+		justifyContent: "center",
+		marginRight: 15,
+	},
+	loadingContainer: {
+		flex: 1,
+		justifyContent: "center",
+		alignItems: "center",
+	},
+	form: {
+		flex: 1,
+		padding: 15,
+		gap: 15,
+	},
+	dayProgressionLine: {
+		position: "absolute",
+		backgroundColor: getTheme().blue,
+		width: Dimensions.get("window").width,
+		height: 2,
+		zIndex: 100,
+	},
+	dayProgressionDot: {
+		position: "absolute",
+		backgroundColor: getTheme().blue,
+		width: 12,
+		height: 12,
+		borderRadius: 6,
+		zIndex: 100,
+		left: 50,
+		transform: [{ translateY: -5 }, { translateX: -5.5 }],
+	},
+	settingItem: {
+		flexDirection: "row",
+		alignItems: "center",
+		paddingHorizontal: 15,
+		gap: 10,
+	},
+	settingItemTitle: {
+		fontFamily: "Rubik-Regular",
+		color: getTheme().header,
+	},
+	settingItemDescription: {
+		fontFamily: "Rubik-Regular",
+		fontSize: 12,
+		color: getTheme().lightGray,
+	},
+	settingItemSwitch: {
+		marginLeft: "auto",
+	},
+	settingCategoryTitle: {
+		fontFamily: "Rubik-Bold",
+		fontSize: 18,
+		color: getTheme().header,
+	},
+	settingCategoryTitleContainer: {
+		padding: 15,
+		flexDirection: "row",
+		alignItems: "center",
+		gap: 8,
+	},
+	settingCategoryTitleIcon: {
+		width: 20,
+		height: 20,
+	},
+	settingContainer: {
+		paddingVertical: 10,
+	},
+	settingButton: {
+		flexDirection: "row",
+		gap: 5,
+	},
+	settingButtonTextDanger: {
+		fontFamily: "Rubik-Regular",
+		color: getTheme().red,
+	},
+	settingButtonText: {
+		fontFamily: "Rubik-Regular",
+		color: getTheme().header,
+	},
+	settingButtonIcon: {
+		width: 20,
+		height: 20,
+	},
+	modalButtons: {
+		flexDirection: "row",
+		justifyContent: "space-between",
+		gap: 20,
+	},
+	modalDescription: {
+		fontFamily: "Rubik-Regular",
+		color: getTheme().gray,
+		fontSize: 14,
+	},
+	modalButton: {
+		backgroundColor: getTheme().borderColor,
+		padding: 15,
+		borderRadius: 10,
+		flex: 1,
+		marginTop: 15,
+		flexDirection: "row",
+		alignItems: "center",
+		justifyContent: "center",
+		gap: 10,
+	},
+	modalButtonText: {
+		fontFamily: "Rubik-Regular",
+		color: getTheme().header80,
+		textAlign: "center",
+	},
+	modalButtonDanger: {
+		backgroundColor: getTheme().red,
+	},
+	modalButtonDangerText: {
+		color: getTheme().white,
+	},
+	dateText: {
+		marginTop: 15,
+		color: getTheme().lightGray,
+		fontSize: 12,
+		fontFamily: "Rubik-Regular",
+		textTransform: "capitalize",
+	},
+	evalItem: {
+		fontFamily: "Rubik-Regular",
+	},
+	evalItemLabel: {
+		fontFamily: "Rubik-Bold",
+		color: getTheme().gray,
+		fontSize: 12,
+		textTransform: "uppercase",
 	},
 });

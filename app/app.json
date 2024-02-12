@@ -1,8 +1,8 @@
 {
 	"expo": {
-		"name": "UPEC Planning",
-		"slug": "planning",
-		"version": "1.2",
+		"name": "Info UPEC",
+		"slug": "infoupec",
+		"version": "1.3.0",
 		"orientation": "portrait",
 		"icon": "./assets/images/icon.png",
 		"userInterfaceStyle": "light",
@@ -20,7 +20,7 @@
 				"foregroundImage": "./assets/images/adaptive-icon.png",
 				"backgroundColor": "#e42535"
 			},
-			"package": "com.du_cassoulet.planning"
+			"package": "com.du_cassoulet.infoupec"
 		},
 		"web": {
 			"favicon": "./assets/images/favicon.png"
