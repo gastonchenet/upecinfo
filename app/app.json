@@ -1,46 +1,48 @@
 {
-	"expo": {
-		"name": "Info UPEC",
-		"slug": "infoupec",
-		"version": "1.3.0",
-		"orientation": "portrait",
-		"icon": "./assets/images/icon.png",
-		"userInterfaceStyle": "light",
-		"splash": {
-			"image": "./assets/images/splash.png",
-			"resizeMode": "contain",
-			"backgroundColor": "#e42535"
-		},
-		"assetBundlePatterns": ["**/*"],
-		"ios": {
-			"supportsTablet": true
-		},
-		"android": {
-			"adaptiveIcon": {
-				"foregroundImage": "./assets/images/icon.png",
-				"backgroundColor": "#e42535"
-			},
-			"package": "com.du_cassoulet.infoupec"
-		},
-		"web": {
-			"favicon": "./assets/images/icon.png"
-		},
-		"plugins": [
-			"expo-secure-store",
-			[
-				"expo-font",
-				[
-					"./assets/fonts/Rubik-Regular.ttf",
-					"./assets/fonts/Rubik-Italic.ttf",
-					"./assets/fonts/Rubik-Bold.ttf",
-					"./assets/fonts/Rubik-ExtraBold.ttf"
-				]
-			]
-		],
-		"extra": {
-			"eas": {
-				"projectId": "5ec991df-1842-4b97-8747-d7db547256af"
-			}
-		}
-	}
+  "expo": {
+    "name": "Info UPEC",
+    "slug": "infoupec",
+    "version": "1.3.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/images/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#e42535"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/icon.png",
+        "backgroundColor": "#e42535"
+      },
+      "package": "com.du_cassoulet.infoupec"
+    },
+    "web": {
+      "favicon": "./assets/images/icon.png"
+    },
+    "plugins": [
+      "expo-secure-store",
+      [
+        "expo-font",
+        [
+          "./assets/fonts/Rubik-Regular.ttf",
+          "./assets/fonts/Rubik-Italic.ttf",
+          "./assets/fonts/Rubik-Bold.ttf",
+          "./assets/fonts/Rubik-ExtraBold.ttf"
+        ]
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "f3c0b864-cc3c-4018-94c7-e96b7401ef7a"
+      }
+    }
+  }
 }

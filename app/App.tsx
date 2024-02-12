@@ -11,7 +11,6 @@ import {
 	Switch,
 	ActivityIndicator,
 	Pressable,
-	TouchableWithoutFeedback,
 	Keyboard,
 } from "react-native";
 import { EventProvider } from "react-native-outside-press";
@@ -432,7 +431,7 @@ export default function App() {
 									}
 									trackColor={{
 										false: getTheme().light,
-										true: getTheme().accentDark,
+										true: getTheme().accentLight,
 									}}
 								/>
 							</View>
