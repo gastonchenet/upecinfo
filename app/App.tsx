@@ -17,7 +17,13 @@ import { EventProvider } from "react-native-outside-press";
 import { MaterialIcons } from "@expo/vector-icons";
 import { useFonts } from "expo-font";
 import { hideAsync, preventAutoHideAsync } from "expo-splash-screen";
-import type { MealEvent, Planning, PlanningEvent } from "./types/Planning";
+import {
+	Campus,
+	type MealEvent,
+	type Planning,
+	type PlanningEvent,
+	type Promo,
+} from "./types/Planning";
 import moment, { type Moment } from "moment";
 import "moment/locale/fr";
 import getTheme from "./utils/getTheme";
@@ -34,6 +40,7 @@ import fetchNotes from "./utils/fetchNotes";
 import { deleteItemAsync, getItemAsync, setItemAsync } from "expo-secure-store";
 import app from "./app.json";
 import BottomModal from "./components/BottomModal";
+import fetchPromos from "./utils/fetchPromos";
 
 enum ColorType {
 	Pastel,
@@ -155,11 +162,14 @@ export default function App() {
 	const [password, setPassword] = useState("");
 	const [fetchingNotes, setFetchingNotes] = useState(false);
 	const [hasAuth, setHasAuth] = useState(false);
+	const [editingPromo, setEditingPromo] = useState(false);
 	const [passwordVisible, setPasswordVisible] = useState(false);
 	const [disconnectModalVisible, setDisconnectModalVisible] = useState(false);
 	const [disconnecting, setDisconnecting] = useState(false);
 	const [settings, setSettings] = useState(DefaultSettings);
 	const [selectedNote, setSelectedNote] = useState<Evaluation | null>(null);
+	const [promo, setPromo] = useState<Promo | null>(null);
+	const [promos, setPromos] = useState<(Promo & { fetching: boolean })[]>([]);
 	const [darkTheme, setDarkTheme] = useState(
 		Appearance.getColorScheme() === "dark"
 	);
@@ -173,6 +183,33 @@ export default function App() {
 		password: null,
 		global: null,
 	});
+
+	function changePromo(promo: Promo & { fetching: boolean }) {
+		setEditingPromo(false);
+		setPromo(promo);
+
+		promos.forEach((p) => (p.fetching = false));
+		promo.fetching = true;
+		setPromos([...promos]);
+
+		fetchPlanning(promo.year, promo.campus, promo.group).then(
+			([success, data]) => {
+				if (success) {
+					setPlanningData(data);
+					const events = data[moment().format("YYYY-MM-DD")] ?? [];
+					setDayEvents(events);
+					setMealEvent(getMealEvent(events));
+					setItemAsync("promo", JSON.stringify(promo));
+				} else {
+					deleteItemAsync("promo");
+					setPromo(null);
+				}
+
+				promo.fetching = false;
+				setPromos([...promos]);
+			}
+		);
+	}
 
 	function changeDay(date: Moment) {
 		setSelectedDate(date);
@@ -248,10 +285,14 @@ export default function App() {
 	});
 
 	useEffect(() => {
+		fetchPromos().then((data) => {
+			setPromos(data.map((promo) => ({ ...promo, fetching: false })));
+		});
+
 		getItemAsync("auth").then((data) => {
 			if (!data) return;
-			setHasAuth(true);
 			const auth: Auth = JSON.parse(data);
+			setHasAuth(true);
 
 			fetchNotes(auth.username, auth.password).then(([success, data]) => {
 				if (success) {
@@ -264,18 +305,31 @@ export default function App() {
 			});
 		});
 
+		getItemAsync("promo").then((data) => {
+			if (!data) return setEditingPromo(true);
+			const promo: Promo = JSON.parse(data);
+			setPromo(promo);
+
+			fetchPlanning(promo.year, promo.campus, promo.group).then(
+				([success, data]) => {
+					if (success) {
+						console.log("Ok");
+						setPlanningData(data);
+						const events = data[moment().format("YYYY-MM-DD")] ?? [];
+						setDayEvents(events);
+						setMealEvent(getMealEvent(events));
+					} else {
+						deleteItemAsync("promo");
+						setEditingPromo(true);
+						setPromo(null);
+					}
+				}
+			);
+		});
+
 		getItemAsync("settings").then((data) => {
 			if (!data) return;
 			setSettings(JSON.parse(data));
-		});
-
-		fetchPlanning().then((data) => {
-			setPlanningData(data);
-
-			const events = data[moment().format("YYYY-MM-DD")] ?? [];
-
-			setDayEvents(events);
-			setMealEvent(getMealEvent(events));
 		});
 
 		const interval = setInterval(() => setTime(moment()), 1000);
@@ -283,10 +337,10 @@ export default function App() {
 	}, []);
 
 	const onLayoutRootView = useCallback(async () => {
-		if (fontsLoaded) return await hideAsync();
-	}, [fontsLoaded]);
+		if (fontsLoaded && promos.length > 0) return await hideAsync();
+	}, [fontsLoaded, promos]);
 
-	if (!fontsLoaded) return null;
+	if (!fontsLoaded || promos.length === 0) return null;
 
 	return (
 		<EventProvider onLayout={onLayoutRootView}>
@@ -327,7 +381,7 @@ export default function App() {
 					</View>
 				</BottomModal>
 				<BottomModal
-					title={selectedNote?.title ?? "Note"}
+					title={selectedNote?.title ?? null}
 					visible={!!selectedNote}
 					setVisible={() => setSelectedNote(null)}
 				>
@@ -369,6 +423,46 @@ export default function App() {
 							? moment(selectedNote.date).format("ddd d MMM YYYY, HH[h]mm")
 							: "Date non renseignée"}
 					</Text>
+				</BottomModal>
+				<BottomModal
+					title="Changer de planning"
+					visible={editingPromo}
+					setVisible={() => setEditingPromo(true)}
+					blockOtherInteractions
+					canBeClosed={false}
+					contentStyle={styles.planningChangeContent}
+					boxStyle={styles.planningChangeBottomModal}
+				>
+					<ScrollView
+						contentContainerStyle={styles.promoSelectorContainer}
+						showsVerticalScrollIndicator={false}
+					>
+						{promos.map((promo, index) => (
+							<Pressable
+								key={index}
+								style={styles.promoSelector}
+								onPress={() => changePromo(promo)}
+							>
+								<Text style={styles.promoText}>{promo.name}</Text>
+								{promo.fetching ? (
+									<View style={styles.arrowButtonActivityContainer}>
+										<ActivityIndicator
+											size="small"
+											color={getTheme().darkGray}
+										/>
+									</View>
+								) : (
+									<View style={styles.arrowButtonContainer}>
+										<MaterialIcons
+											name="arrow-forward"
+											size={20}
+											color={getTheme().white}
+										/>
+									</View>
+								)}
+							</Pressable>
+						))}
+					</ScrollView>
 				</BottomModal>
 				<View style={styles.head}>
 					<Image
@@ -484,6 +578,24 @@ export default function App() {
 									style={styles.settingCategoryTitleIcon}
 								/>
 								<Text style={styles.settingCategoryTitle}>Connexion</Text>
+							</View>
+							<View style={styles.settingItem}>
+								<Pressable
+									style={styles.settingButton}
+									onPress={() => setEditingPromo(true)}
+								>
+									<MaterialIcons
+										name="edit-calendar"
+										size={18}
+										color={getTheme().header}
+									/>
+									<Text style={styles.settingButtonText}>
+										Changer de planning
+									</Text>
+									<Text style={styles.settingButtonDescription}>
+										({promo?.name})
+									</Text>
+								</Pressable>
 							</View>
 							<View style={styles.settingItem}>
 								<Pressable
@@ -652,7 +764,11 @@ export default function App() {
 												{moment(event.end).format("HH[h]mm")}
 											</Text>
 										</View>
-										<Text style={styles.room}>{event.location}</Text>
+										{event.location && (
+											<Text style={styles.room}>
+												{event.location.replace(/\\,\s*/g, ", ")}
+											</Text>
+										)}
 									</View>
 								))}
 								{settings.showMealBounds && mealEvent && (
@@ -1476,6 +1592,7 @@ const styles = StyleSheet.create({
 		alignItems: "center",
 		paddingHorizontal: 15,
 		gap: 10,
+		marginVertical: 5,
 	},
 	settingItemTitle: {
 		fontFamily: "Rubik-Regular",
@@ -1488,6 +1605,7 @@ const styles = StyleSheet.create({
 	},
 	settingItemSwitch: {
 		marginLeft: "auto",
+		marginTop: -16,
 	},
 	settingCategoryTitle: {
 		fontFamily: "Rubik-Bold",
@@ -1570,5 +1688,51 @@ const styles = StyleSheet.create({
 		color: getTheme().gray,
 		fontSize: 12,
 		textTransform: "uppercase",
+	},
+	promoSelectorContainer: {
+		gap: 15,
+		paddingVertical: 15,
+	},
+	promoSelector: {
+		borderWidth: 2,
+		borderColor: getTheme().gray,
+		borderRadius: 10,
+		padding: 10,
+		flexDirection: "row",
+		alignItems: "center",
+		justifyContent: "space-between",
+		gap: 10,
+	},
+	promoText: {
+		fontFamily: "Rubik-Regular",
+		color: getTheme().header,
+		fontSize: 13,
+		marginLeft: 5,
+	},
+	arrowButtonActivityContainer: {
+		height: 30,
+		width: 30,
+		justifyContent: "center",
+		alignItems: "center",
+	},
+	arrowButtonContainer: {
+		height: 30,
+		width: 30,
+		backgroundColor: getTheme().darkGray,
+		justifyContent: "center",
+		alignItems: "center",
+		borderRadius: 15,
+	},
+	planningChangeContent: {
+		maxHeight: 380,
+	},
+	planningChangeBottomModal: {
+		paddingBottom: 0,
+	},
+	settingButtonDescription: {
+		fontFamily: "Rubik-Regular",
+		color: getTheme().lightGray,
+		fontSize: 12,
+		marginTop: 2,
 	},
 });

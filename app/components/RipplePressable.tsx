@@ -15,8 +15,8 @@ import Animated, {
 	withTiming,
 } from "react-native-reanimated";
 
-type RipplePressableOptions = {
-	style?: StyleSheet.NamedStyles<any> | StyleSheet.NamedStyles<any>[] | any;
+type RipplePressableProps = {
+	style?: any;
 	onPress?: (...args: any[]) => void;
 	children: ReactNode;
 	duration: number;
@@ -29,7 +29,7 @@ export default function RipplePressable({
 	children,
 	duration,
 	rippleColor,
-}: RipplePressableOptions) {
+}: RipplePressableProps) {
 	const centerX = useSharedValue(0);
 	const centerY = useSharedValue(0);
 	const scale = useSharedValue(0);

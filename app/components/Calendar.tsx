@@ -10,7 +10,7 @@ import { MaterialIcons } from "@expo/vector-icons";
 import moment, { type Moment } from "moment";
 import type { Planning } from "../types/Planning";
 
-type CalendarOptions = {
+type CalendarProps = {
 	planningData: Planning;
 	selectedDate: Moment;
 	visible: boolean;
@@ -33,7 +33,7 @@ export default function Calendar({
 	visible,
 	setSelectedDate,
 	setVisible,
-}: CalendarOptions) {
+}: CalendarProps) {
 	const [currentMonth, setCurrentMonth] = useState(
 		selectedDate.clone().startOf("month")
 	);

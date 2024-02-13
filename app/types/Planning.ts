@@ -1,5 +1,18 @@
 import type { Moment } from "moment";
 
+export enum Campus {
+	Senart = "sen",
+	Fontainebleau = "fbl",
+}
+
+type Promo = {
+	name: string;
+	year: number;
+	campus: Campus;
+	group: number;
+	planningIds: string[];
+};
+
 type PlanningEvent = {
 	start: string;
 	end: string;
@@ -16,4 +29,4 @@ type MealEvent = {
 
 type Planning = { [key: string]: PlanningEvent[] };
 
-export type { Planning, PlanningEvent, MealEvent };
+export type { Promo, Planning, PlanningEvent, MealEvent };

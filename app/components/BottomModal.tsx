@@ -11,8 +11,12 @@ import getTheme from "../utils/getTheme";
 type BottomModalProps = {
 	visible: boolean;
 	setVisible: (visible: boolean) => void;
-	title: string;
-	children: ReactNode;
+	title: string | null;
+	children?: ReactNode;
+	blockOtherInteractions?: boolean;
+	canBeClosed?: boolean;
+	contentStyle?: any;
+	boxStyle?: any;
 };
 
 const ANIMATION_DURATION = 200;
@@ -22,24 +26,35 @@ export default function BottomModal({
 	setVisible,
 	title,
 	children,
+	blockOtherInteractions = false,
+	canBeClosed = true,
+	contentStyle,
+	boxStyle,
 }: BottomModalProps) {
+	const containerOpacity = useSharedValue(0);
 	const opacity = useSharedValue(0);
 	const translateY = useSharedValue(200);
 	const scale = useSharedValue(0.5);
 
-	const animatedStyle = useAnimatedStyle(() => {
-		return {
-			transform: [{ translateY: translateY.value }, { scale: scale.value }],
-			opacity: opacity.value,
-			pointerEvents: visible ? "auto" : "none",
-		};
-	});
+	const animatedStyle = useAnimatedStyle(() => ({
+		transform: [{ translateY: translateY.value }, { scale: scale.value }],
+		opacity: opacity.value,
+		pointerEvents: visible ? "auto" : "none",
+	}));
+
+	const containerStyle = useAnimatedStyle(() => ({
+		opacity: containerOpacity.value,
+	}));
 
 	function close() {
 		setVisible(false);
 	}
 
 	useEffect(() => {
+		containerOpacity.value = withTiming(visible ? 1 : 0, {
+			duration: ANIMATION_DURATION,
+		});
+
 		opacity.value = withTiming(visible ? 1 : 0, {
 			duration: ANIMATION_DURATION,
 		});
@@ -54,21 +69,44 @@ export default function BottomModal({
 	}, [visible]);
 
 	return (
-		<Animated.View style={[styles.container, animatedStyle]}>
-			<View style={styles.modalHead}>
-				<Text style={styles.title} numberOfLines={1} ellipsizeMode="tail">
-					{title}
-				</Text>
-				<Pressable onPress={close}>
-					<MaterialIcons name="close" size={24} color={getTheme().header80} />
-				</Pressable>
-			</View>
-			<View>{children}</View>
+		<Animated.View
+			style={[
+				styles.modalContainer,
+				containerStyle,
+				{ pointerEvents: visible && blockOtherInteractions ? "auto" : "none" },
+			]}
+		>
+			<Animated.View style={[styles.container, animatedStyle, boxStyle]}>
+				<View style={styles.modalHead}>
+					<Text style={styles.title} numberOfLines={1} ellipsizeMode="tail">
+						{title}
+					</Text>
+					{canBeClosed && (
+						<Pressable onPress={close}>
+							<MaterialIcons
+								name="close"
+								size={24}
+								color={getTheme().header80}
+							/>
+						</Pressable>
+					)}
+				</View>
+				<View style={contentStyle}>{children}</View>
+			</Animated.View>
 		</Animated.View>
 	);
 }
 
 const styles = StyleSheet.create({
+	modalContainer: {
+		position: "absolute",
+		top: 0,
+		bottom: 0,
+		left: 0,
+		right: 0,
+		backgroundColor: "#0003",
+		zIndex: 800,
+	},
 	container: {
 		backgroundColor: "white",
 		position: "absolute",

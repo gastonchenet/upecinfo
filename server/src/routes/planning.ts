@@ -1,18 +1,45 @@
 import { Router } from "express";
-import type { Planning, PlanningEvent } from "../types/Planning";
+import type { Campus, Planning, PlanningEvent } from "../types/Planning";
 import moment from "moment";
 import "moment/locale/fr";
 import packageContent from "../../package.json";
 import {
 	PLANNING_URL,
-	PLANNING_SEM1_ID,
-	PLANNING_SEM2_ID,
+	BUT_1_SEN,
+	BUT_1_FBL_1,
+	BUT_1_FBL_2,
+	BUT_1_FBL_3,
+	BUT_1_FBL_4,
+	BUT_1_FBL_5,
+	BUT_1_FBL_6,
+	BUT_2_FBL_FI_1,
+	BUT_2_FBL_FI_2,
+	BUT_2_FBL_FI_3,
+	BUT_2_FBL_FI_4,
+	BUT_2_FBL_FA,
+	BUT_3,
 } from "../constants/Planning";
+
+const Promos = Object.freeze([
+	BUT_1_SEN,
+	BUT_1_FBL_1,
+	BUT_1_FBL_2,
+	BUT_1_FBL_3,
+	BUT_1_FBL_4,
+	BUT_1_FBL_5,
+	BUT_1_FBL_6,
+	BUT_2_FBL_FI_1,
+	BUT_2_FBL_FI_2,
+	BUT_2_FBL_FI_3,
+	BUT_2_FBL_FI_4,
+	BUT_2_FBL_FA,
+	BUT_3,
+]);
 
 moment.locale("fr");
 
 const router = Router();
-let days: Planning = {};
+const dayMap: Map<string, Planning> = new Map();
 
 function getItemValue(raw: string) {
 	return raw.split(":")[1];
@@ -26,10 +53,11 @@ async function fetchPlanning(planningId: string) {
 		method: "GET",
 		headers: {
 			Accept: "*/*",
-			"User-Agent": `UpecPlanning/${packageContent.version} (com.ducassoulet.planning)`,
+			"User-Agent": `UpecInfo/${packageContent.version} (com.ducassoulet.upecinfo)`,
 		},
 	});
 
+	let days = dayMap.get(planningId) ?? {};
 	if (!res.ok) return days;
 	const rawData = await res.text();
 	const data: PlanningEvent[] = [];
@@ -84,16 +112,56 @@ async function fetchPlanning(planningId: string) {
 			days[date].push(event);
 		});
 
+	dayMap.set(planningId, days);
+
 	return days;
 }
 
-router.get("/", async (req, res) => {
-	const data = await Promise.all([
-		fetchPlanning(PLANNING_SEM1_ID),
-		fetchPlanning(PLANNING_SEM2_ID),
-	]);
+function getPromo(year: number, campus: Campus, group: number) {
+	return (
+		Promos.find(
+			(promo) =>
+				promo.year === year && promo.campus === campus && promo.group === group
+		) ?? null
+	);
+}
 
-	return res.json({ ...data[0], ...data[1] });
+router.get("/", async (req, res) => {
+	const planning: Planning = {};
+	const { year, campus, group } = req.query;
+
+	if (!year || !campus || !group)
+		return res.status(400).json({
+			message: "Invlaid resuqest query parameters.",
+		});
+
+	const promo = getPromo(
+		parseInt(year?.toString()!),
+		campus?.toString() as Campus,
+		parseInt(group?.toString()!)
+	);
+
+	if (!promo)
+		return res.status(404).json({
+			message: "This promo doesn't exist.",
+		});
+
+	const data = await Promise.all(
+		promo.planningIds.map((planningId) => fetchPlanning(planningId))
+	);
+
+	data.forEach((semester) => {
+		Object.keys(semester).forEach((date) => {
+			if (!planning[date]) planning[date] = [];
+			planning[date].push(...semester[date]);
+		});
+	});
+
+	return res.json(planning);
+});
+
+router.get("/promos", (req, res) => {
+	return res.json(Promos);
 });
 
 export default router;

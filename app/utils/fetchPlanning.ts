@@ -1,7 +1,17 @@
-import type { Planning } from "../types/Planning";
+import type { Campus, Planning } from "../types/Planning";
 
-export default async function fetchPlanning(): Promise<Planning> {
-	const res = await fetch("http://129.151.234.121:8081/planning");
-	if (!res.ok) return {};
-	return await res.json();
+export default async function fetchPlanning(
+	year: number,
+	campus: Campus,
+	group: number
+): Promise<[true, Planning] | [false, null]> {
+	const url = new URL("http://192.168.1.80:8080/planning");
+	url.searchParams.append("year", year.toString());
+	url.searchParams.append("campus", campus);
+	url.searchParams.append("group", group.toString());
+
+	const res = await fetch(url.toString());
+	if (!res.ok) return [false, null];
+
+	return [true, await res.json()];
 }
