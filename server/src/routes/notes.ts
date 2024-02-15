@@ -1,5 +1,5 @@
 import { Router } from "express";
-import puppeteer, { type HTTPResponse } from "puppeteer";
+import puppeteer, { type HTTPRequest, type HTTPResponse } from "puppeteer";
 import type { RawSemester, Semester } from "../types/Notes";
 import moment from "moment";
 import "moment/locale/fr";
@@ -81,6 +81,7 @@ router.get("/", async (req, res) => {
 		switch (urlPath) {
 			case "www.iut-fbleau.fr/ainur/login": {
 				if (response.status() !== 302) {
+					page.off("request", filterRequests);
 					page.off("response", handleSemesters);
 					await browser.close();
 				}
@@ -107,6 +108,7 @@ router.get("/", async (req, res) => {
 					});
 
 					if (semesters.length >= maxSemesters) {
+						page.off("request", filterRequests);
 						page.off("response", handleSemesters);
 						await browser.close();
 						return res.json(parseSemesters(semesters));
@@ -118,6 +120,15 @@ router.get("/", async (req, res) => {
 		}
 	}
 
+	function filterRequests(req: HTTPRequest) {
+		if (["stylesheet", "font", "image"].includes(req.resourceType())) {
+			req.abort();
+		} else {
+			req.continue();
+		}
+	}
+
+	page.on("request", filterRequests);
 	page.on("response", handleSemesters);
 
 	await page.waitForSelector("#username");

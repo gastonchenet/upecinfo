@@ -346,7 +346,7 @@ export default function App() {
 			<GestureHandlerRootView style={styles.container}>
 				<StatusBar style="light" />
 				<BottomModal
-					title="Déconnection"
+					title="Déconnexion"
 					visible={disconnectModalVisible}
 					onClose={() => setDisconnectModalVisible(false)}
 				>
@@ -841,7 +841,7 @@ export default function App() {
 								</View>
 								<View style={styles.connectionPage}>
 									<View style={styles.noteHeader}>
-										<Text style={styles.noteHeaderLabel}>Connection</Text>
+										<Text style={styles.noteHeaderLabel}>Connexion</Text>
 										<Text style={styles.meanText}>
 											Veuillez entrer vos identifiants pour accéder à vos notes.
 										</Text>
