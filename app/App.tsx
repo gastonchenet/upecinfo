@@ -313,7 +313,6 @@ export default function App() {
 			fetchPlanning(promo.year, promo.campus, promo.group).then(
 				([success, data]) => {
 					if (success) {
-						console.log("Ok");
 						setPlanningData(data);
 						const events = data[moment().format("YYYY-MM-DD")] ?? [];
 						setDayEvents(events);
@@ -349,7 +348,7 @@ export default function App() {
 				<BottomModal
 					title="Déconnection"
 					visible={disconnectModalVisible}
-					setVisible={setDisconnectModalVisible}
+					onClose={() => setDisconnectModalVisible(false)}
 				>
 					<Text style={styles.modalDescription}>
 						Es-tu sûr de vouloir te déconnecter ?
@@ -372,7 +371,9 @@ export default function App() {
 						</RipplePressable>
 						<RipplePressable
 							duration={500}
-							rippleColor="#0001"
+							rippleColor={
+								Appearance.getColorScheme() === "dark" ? "#fff1" : "#0001"
+							}
 							style={styles.modalButton}
 							onPress={() => setDisconnectModalVisible(false)}
 						>
@@ -383,7 +384,7 @@ export default function App() {
 				<BottomModal
 					title={selectedNote?.title ?? null}
 					visible={!!selectedNote}
-					setVisible={() => setSelectedNote(null)}
+					onClose={() => setSelectedNote(null)}
 				>
 					<Text style={styles.evalItem}>
 						<Text style={styles.evalItemLabel}>Note</Text>
@@ -427,7 +428,6 @@ export default function App() {
 				<BottomModal
 					title="Changer de planning"
 					visible={editingPromo}
-					setVisible={() => setEditingPromo(true)}
 					blockOtherInteractions
 					canBeClosed={false}
 					contentStyle={styles.planningChangeContent}
@@ -456,7 +456,7 @@ export default function App() {
 										<MaterialIcons
 											name="arrow-forward"
 											size={20}
-											color={getTheme().white}
+											color={getTheme().light}
 										/>
 									</View>
 								)}
@@ -1682,6 +1682,7 @@ const styles = StyleSheet.create({
 	},
 	evalItem: {
 		fontFamily: "Rubik-Regular",
+		color: getTheme().header,
 	},
 	evalItemLabel: {
 		fontFamily: "Rubik-Bold",

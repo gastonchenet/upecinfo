@@ -7,23 +7,31 @@ import Animated, {
 	withTiming,
 } from "react-native-reanimated";
 import getTheme from "../utils/getTheme";
+import OutsidePressHandler from "react-native-outside-press";
 
 type BottomModalProps = {
 	visible: boolean;
-	setVisible: (visible: boolean) => void;
 	title: string | null;
 	children?: ReactNode;
 	blockOtherInteractions?: boolean;
-	canBeClosed?: boolean;
 	contentStyle?: any;
 	boxStyle?: any;
-};
+} & (
+	| {
+			canBeClosed?: true;
+			onClose: (...args: any[]) => void;
+	  }
+	| {
+			canBeClosed?: false;
+			onClose?: never;
+	  }
+);
 
 const ANIMATION_DURATION = 200;
 
 export default function BottomModal({
 	visible,
-	setVisible,
+	onClose,
 	title,
 	children,
 	blockOtherInteractions = false,
@@ -44,11 +52,8 @@ export default function BottomModal({
 
 	const containerStyle = useAnimatedStyle(() => ({
 		opacity: containerOpacity.value,
+		pointerEvents: visible ? "auto" : "none",
 	}));
-
-	function close() {
-		setVisible(false);
-	}
 
 	useEffect(() => {
 		containerOpacity.value = withTiming(visible ? 1 : 0, {
@@ -69,29 +74,25 @@ export default function BottomModal({
 	}, [visible]);
 
 	return (
-		<Animated.View
-			style={[
-				styles.modalContainer,
-				containerStyle,
-				{ pointerEvents: visible && blockOtherInteractions ? "auto" : "none" },
-			]}
-		>
+		<Animated.View style={[styles.modalContainer, containerStyle]}>
 			<Animated.View style={[styles.container, animatedStyle, boxStyle]}>
-				<View style={styles.modalHead}>
-					<Text style={styles.title} numberOfLines={1} ellipsizeMode="tail">
-						{title}
-					</Text>
-					{canBeClosed && (
-						<Pressable onPress={close}>
-							<MaterialIcons
-								name="close"
-								size={24}
-								color={getTheme().header80}
-							/>
-						</Pressable>
-					)}
-				</View>
-				<View style={contentStyle}>{children}</View>
+				<OutsidePressHandler onOutsidePress={onClose ?? (() => {})}>
+					<View style={styles.modalHead}>
+						<Text style={styles.title} numberOfLines={1} ellipsizeMode="tail">
+							{title}
+						</Text>
+						{canBeClosed && (
+							<Pressable onPress={onClose}>
+								<MaterialIcons
+									name="close"
+									size={24}
+									color={getTheme().header80}
+								/>
+							</Pressable>
+						)}
+					</View>
+					<View style={contentStyle}>{children}</View>
+				</OutsidePressHandler>
 			</Animated.View>
 		</Animated.View>
 	);
@@ -108,7 +109,7 @@ const styles = StyleSheet.create({
 		zIndex: 800,
 	},
 	container: {
-		backgroundColor: "white",
+		backgroundColor: getTheme().eventColor,
 		position: "absolute",
 		bottom: 0,
 		left: 0,

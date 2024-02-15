@@ -132,7 +132,7 @@ router.get("/", async (req, res) => {
 
 	if (!year || !campus || !group)
 		return res.status(400).json({
-			message: "Invlaid resuqest query parameters.",
+			message: "Invlaid request query parameters.",
 		});
 
 	const promo = getPromo(

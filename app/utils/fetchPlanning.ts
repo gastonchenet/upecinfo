@@ -5,7 +5,7 @@ export default async function fetchPlanning(
 	campus: Campus,
 	group: number
 ): Promise<[true, Planning] | [false, null]> {
-	const url = new URL("http://192.168.1.80:8080/planning");
+	const url = new URL("https://upec-info.com/planning");
 	url.searchParams.append("year", year.toString());
 	url.searchParams.append("campus", campus);
 	url.searchParams.append("group", group.toString());
