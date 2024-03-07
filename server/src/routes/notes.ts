@@ -3,8 +3,28 @@ import puppeteer, { type HTTPRequest, type HTTPResponse } from "puppeteer";
 import type { RawSemester, Semester } from "../types/Notes";
 import moment from "moment";
 import "moment/locale/fr";
+import { createHash } from "crypto";
+import { UPDATE_INTERVAL } from "../constants/Notes";
+import {
+	ARGS,
+	EXECUTABLEPATH,
+	HEADLESS,
+	USERAGENT,
+} from "../constants/Puppeteer";
+import Distribution from "../models/Distribution";
 
 const router = Router();
+
+const users = new Set<string>();
+const userSemesters = new Map<string, Semester[]>();
+
+let lastUpdate = moment().subtract(UPDATE_INTERVAL);
+
+function hashUser(username: string, password: string) {
+	return createHash("sha256")
+		.update(username + password)
+		.digest("hex");
+}
 
 function parseSemesters(rawSemesters: RawSemester[]) {
 	const semesters: Semester[] = [];
@@ -31,6 +51,7 @@ function parseSemesters(rawSemesters: RawSemester[]) {
 				id,
 				title: resource.titre,
 				evaluations: resource.evaluations.map((rawEvaluation) => ({
+					id: rawEvaluation.id,
 					title: rawEvaluation.description,
 					coefficient: parseFloat(rawEvaluation.coef),
 					note: parseFloat(rawEvaluation.note.value),
@@ -62,12 +83,32 @@ router.get("/", async (req, res) => {
 		return res.status(400).json({ message: "Missing username or password" });
 	}
 
+	if (moment().diff(lastUpdate) < UPDATE_INTERVAL) {
+		const userHash = hashUser(username.toString(), password.toString());
+		const user = userSemesters.get(userHash);
+
+		if (user) return res.json(user);
+	}
+
 	const browser = await puppeteer.launch({
-		headless: true,
-		args: ["--no-sandbox", "--disable-setuid-sandbox"],
+		headless: HEADLESS,
+		args: ARGS,
+		executablePath: EXECUTABLEPATH,
 	});
 
 	const page = await browser.newPage();
+	await page.setUserAgent(USERAGENT);
+	await page.setRequestInterception(true);
+
+	function filterRequests(req: HTTPRequest) {
+		if (["stylesheet", "font", "image"].includes(req.resourceType())) {
+			req.abort();
+		} else {
+			req.continue();
+		}
+	}
+
+	page.on("request", filterRequests);
 
 	await page.goto("https://www.iut-fbleau.fr/notes/", {
 		waitUntil: "networkidle2",
@@ -111,7 +152,18 @@ router.get("/", async (req, res) => {
 						page.off("request", filterRequests);
 						page.off("response", handleSemesters);
 						await browser.close();
-						return res.json(parseSemesters(semesters));
+						const parsedSemesters = parseSemesters(semesters);
+
+						const userHash = hashUser(
+							username!.toString(),
+							password!.toString()
+						);
+
+						if (!users.has(userHash)) users.add(userHash);
+						userSemesters.set(userHash, parsedSemesters);
+						lastUpdate = moment();
+
+						return res.json(parsedSemesters);
 					}
 				}
 
@@ -120,15 +172,6 @@ router.get("/", async (req, res) => {
 		}
 	}
 
-	function filterRequests(req: HTTPRequest) {
-		if (["stylesheet", "font", "image"].includes(req.resourceType())) {
-			req.abort();
-		} else {
-			req.continue();
-		}
-	}
-
-	page.on("request", filterRequests);
 	page.on("response", handleSemesters);
 
 	await page.waitForSelector("#username");
@@ -148,6 +191,111 @@ router.get("/", async (req, res) => {
 		for (let i = maxSemesters; i > 0; i--) {
 			await page.click(`.semestres label:nth-child(${i})`);
 		}
+	} catch {
+		return res.status(401).json({ message: "Invalid credentials" });
+	}
+});
+
+router.get("/:noteId/distribution", async (req, res) => {
+	const { password, username } = req.query;
+
+	if (!username || !password) {
+		return res.status(400).json({ message: "Missing username or password" });
+	}
+
+	const evalId = parseInt(req.params.noteId);
+
+	const userHash = hashUser(username.toString(), password.toString());
+
+	if (users.has(userHash)) {
+		const noteManager = await Distribution.findOne({ evalId });
+		if (noteManager) return res.json(noteManager.distrib);
+	}
+
+	const browser = await puppeteer.launch({
+		headless: HEADLESS,
+		args: ARGS,
+		executablePath: EXECUTABLEPATH,
+	});
+
+	const page = await browser.newPage();
+	await page.setUserAgent(USERAGENT);
+	await page.setRequestInterception(true);
+
+	function filterRequests(req: HTTPRequest) {
+		if (["stylesheet", "font", "image"].includes(req.resourceType())) {
+			req.abort();
+		} else {
+			req.continue();
+		}
+	}
+
+	page.on("request", filterRequests);
+
+	await page.goto("https://www.iut-fbleau.fr/notes/", {
+		waitUntil: "networkidle2",
+	});
+
+	async function handleSemesters(response: HTTPResponse) {
+		const url = new URL(response.url());
+		const urlPath = url.hostname + url.pathname;
+
+		if (urlPath === "www.iut-fbleau.fr/ainur/login") {
+			if (response.status() !== 302) {
+				page.off("request", filterRequests);
+				page.off("response", handleSemesters);
+				await browser.close();
+			}
+		}
+	}
+
+	page.on("response", handleSemesters);
+
+	await page.waitForSelector("#username");
+	await page.type("#username", username.toString());
+	await page.type("#password", password.toString());
+
+	await page.click("button[type='submit']");
+
+	try {
+		await page.waitForSelector(".semestres", { visible: true });
+		await page.goto(
+			`https://www.iut-fbleau.fr/notes/services/data.php?q=listeNotes&eval=${req.params.noteId}`,
+			{
+				waitUntil: "networkidle2",
+			}
+		);
+
+		const content: number[] | null = await page.evaluate(() => {
+			try {
+				return JSON.parse(document.querySelector("pre")!.innerText);
+			} catch {
+				return null;
+			}
+		});
+
+		await browser.close();
+
+		if (!content) return res.status(404).json({ message: "Note not found" });
+
+		const noteDistrib = new Array(21).fill(0);
+
+		content.forEach((note) => {
+			noteDistrib[Math.floor(note)]++;
+		});
+
+		if (!users.has(userHash)) users.add(userHash);
+
+		if (!(await Distribution.exists({ evalId }))) {
+			const noteManager = new Distribution({
+				evalId,
+				distrib: noteDistrib,
+			});
+
+			await noteManager.save();
+		}
+
+		return res.json(noteDistrib);
 	} catch {
 		return res.status(401).json({ message: "Invalid credentials" });
 	}

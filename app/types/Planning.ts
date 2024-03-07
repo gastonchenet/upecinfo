@@ -5,15 +5,23 @@ export enum Campus {
 	Fontainebleau = "fbl",
 }
 
+export enum Sector {
+	Info = "info",
+	Tc = "tc",
+	Mmi = "mmi",
+}
+
 type Promo = {
 	name: string;
 	year: number;
 	campus: Campus;
 	group: number;
+	notificationChannel: string;
 	planningIds: string[];
 };
 
 type PlanningEvent = {
+	uid: string;
 	start: string;
 	end: string;
 	summary: string;
@@ -29,4 +37,6 @@ type MealEvent = {
 
 type Planning = { [key: string]: PlanningEvent[] };
 
-export type { Promo, Planning, PlanningEvent, MealEvent };
+type Promos = { [key: string]: (Promo & { fetching: boolean })[] };
+
+export type { Promos, Promo, Planning, PlanningEvent, MealEvent };

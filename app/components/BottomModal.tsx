@@ -1,5 +1,5 @@
 import React, { useEffect, type ReactNode } from "react";
-import { View, Text, StyleSheet, Pressable } from "react-native";
+import { View, Text, StyleSheet, Pressable, BackHandler } from "react-native";
 import { MaterialIcons } from "@expo/vector-icons";
 import Animated, {
 	useAnimatedStyle,
@@ -13,7 +13,6 @@ type BottomModalProps = {
 	visible: boolean;
 	title: string | null;
 	children?: ReactNode;
-	blockOtherInteractions?: boolean;
 	contentStyle?: any;
 	boxStyle?: any;
 } & (
@@ -34,7 +33,6 @@ export default function BottomModal({
 	onClose,
 	title,
 	children,
-	blockOtherInteractions = false,
 	canBeClosed = true,
 	contentStyle,
 	boxStyle,
@@ -71,6 +69,21 @@ export default function BottomModal({
 		scale.value = withTiming(visible ? 1 : 0.5, {
 			duration: ANIMATION_DURATION,
 		});
+
+		function onBackPress() {
+			if (visible && canBeClosed) {
+				onClose?.();
+				return true;
+			}
+
+			return false;
+		}
+
+		BackHandler.addEventListener("hardwareBackPress", onBackPress);
+
+		return () => {
+			BackHandler.removeEventListener("hardwareBackPress", onBackPress);
+		};
 	}, [visible]);
 
 	return (

@@ -19,13 +19,6 @@ type CalendarProps = {
 };
 
 const ANIMATION_DURATION = 200;
-const MONTHS = Object.freeze([31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]);
-
-function monthDays(year: number, month: number) {
-	return month === 1 && year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0)
-		? 29
-		: MONTHS[month];
-}
 
 export default function Calendar({
 	planningData,
@@ -79,6 +72,24 @@ export default function Calendar({
 		setCurrentMonth(currentMonth.subtract(1, "month").clone());
 	}
 
+	function monthDays() {
+		return Array.from(
+			{
+				length:
+					currentMonth
+						.clone()
+						.endOf("month")
+						.diff(currentMonth.clone().startOf("month"), "days") + 1,
+			},
+			(_, i) =>
+				currentMonth
+					.clone()
+					.startOf("month")
+					.add(i, "days")
+					.format("YYYY-MM-DD")
+		).reduce((acc, date) => acc + (planningData[date] ? 1 : 0), 0);
+	}
+
 	return (
 		<Animated.View style={[styles.calendar, calendarAnimatedStyle]}>
 			<View style={styles.calendarHead}>
@@ -89,9 +100,18 @@ export default function Calendar({
 					>
 						<MaterialIcons name="today" size={24} color={getTheme().header} />
 					</Pressable>
-					<Text style={styles.calendarDay}>
-						{currentMonth.format("MMMM YYYY")}
-					</Text>
+					<View>
+						<Text style={styles.calendarDay}>
+							{currentMonth.format("MMMM YYYY")}
+						</Text>
+						<Text style={styles.calendarSubDay}>
+							{monthDays() === 0
+								? "Aucun cours"
+								: monthDays() === 1
+								? "1 jour de cours"
+								: `${monthDays()} jours de cours`}
+						</Text>
+					</View>
 				</View>
 				<View style={styles.calendarButtons}>
 					<Pressable onPress={subtractMonth} style={styles.calendarButton}>
@@ -112,44 +132,64 @@ export default function Calendar({
 			</View>
 			<View style={styles.dayWrapper}>
 				{Array.from(
-					{ length: monthDays(currentMonth.year(), currentMonth.month()) },
-					(_, i) => (
+					{
+						length:
+							currentMonth
+								.clone()
+								.endOf("month")
+								.endOf("week")
+								.diff(
+									currentMonth.clone().startOf("month").startOf("week"),
+									"days"
+								) + 1,
+					},
+					(_, i) =>
+						currentMonth.clone().startOf("month").startOf("week").add(i, "days")
+				).map((date, i) =>
+					!date.isSame(currentMonth, "month") ? (
+						<View key={i} style={styles.dayButton} />
+					) : (
 						<Pressable
 							key={i}
 							style={[
 								styles.dayButton,
 								{
-									backgroundColor: currentMonth
-										.date(i + 1)
-										.isSame(moment(), "day")
+									backgroundColor: date.isSame(moment(), "day")
 										? getTheme().accent
-										: currentMonth.date(i + 1).isSame(selectedDate, "day")
+										: date.isSame(selectedDate, "day")
 										? Appearance.getColorScheme() === "light"
 											? "#0001"
 											: "#fff1"
 										: "transparent",
 								},
 							]}
-							onPress={() => selectDate(currentMonth.clone().date(i + 1))}
+							onPress={() => selectDate(date)}
 						>
 							<Text
 								style={[
 									styles.dayLabel,
 									{
-										color: currentMonth.date(i + 1).isSame(moment(), "day")
+										color: date.isSame(moment(), "day")
 											? getTheme().white
-											: planningData[
-													currentMonth
-														.clone()
-														.date(i + 1)
-														.format("YYYY-MM-DD")
-											  ]
+											: planningData[date.format("YYYY-MM-DD")]
 											? getTheme().darkGray
 											: getTheme().lightGray,
 									},
 								]}
 							>
-								{i + 1}
+								{date.format("D")}
+							</Text>
+							<Text
+								style={[
+									styles.dayName,
+									{
+										color: date.isSame(moment(), "day")
+											? getTheme().white80
+											: getTheme().gray,
+									},
+								]}
+							>
+								{date.format("dd")}
 							</Text>
 						</Pressable>
 					)
@@ -165,7 +205,7 @@ const styles = StyleSheet.create({
 		backgroundColor: getTheme().eventColor,
 		top: 56,
 		right: 0,
-		width: 260,
+		width: 330,
 		zIndex: 100,
 		borderRadius: 10,
 		elevation: 5,
@@ -187,8 +227,16 @@ const styles = StyleSheet.create({
 	},
 	calendarDay: {
 		fontSize: 16,
+		lineHeight: 20,
 		color: getTheme().header,
 		fontFamily: "Rubik-Bold",
+		textTransform: "capitalize",
+	},
+	calendarSubDay: {
+		fontSize: 12,
+		lineHeight: 16,
+		color: getTheme().gray,
+		fontFamily: "Rubik-Italic",
 	},
 	calendarButtons: {
 		flexDirection: "row",
@@ -209,14 +257,15 @@ const styles = StyleSheet.create({
 		gap: 5,
 	},
 	dayButton: {
-		width: 30,
-		height: 30,
+		width: 40,
+		height: 40,
 		alignItems: "center",
 		justifyContent: "center",
-		borderRadius: 15,
+		borderRadius: 20,
 	},
 	dayLabel: {
 		fontSize: 16,
+		lineHeight: 16,
 		color: getTheme().darkGray,
 		fontFamily: "Rubik-Regular",
 	},
@@ -226,5 +275,12 @@ const styles = StyleSheet.create({
 		alignItems: "center",
 		justifyContent: "center",
 		borderRadius: 20,
+	},
+	dayName: {
+		fontSize: 10,
+		lineHeight: 10,
+		color: getTheme().gray,
+		fontFamily: "Rubik-Regular",
+		textTransform: "capitalize",
 	},
 });

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
 	Dimensions,
 	Image,
@@ -12,17 +12,20 @@ import {
 	ActivityIndicator,
 	Pressable,
 	Keyboard,
+	Linking,
+	Platform,
 } from "react-native";
 import { EventProvider } from "react-native-outside-press";
-import { MaterialIcons } from "@expo/vector-icons";
+import { MaterialIcons, FontAwesome6 } from "@expo/vector-icons";
 import { useFonts } from "expo-font";
 import { hideAsync, preventAutoHideAsync } from "expo-splash-screen";
 import {
-	Campus,
-	type MealEvent,
-	type Planning,
-	type PlanningEvent,
-	type Promo,
+	MealEvent,
+	Planning,
+	PlanningEvent,
+	Promo,
+	Promos,
+	Sector,
 } from "./types/Planning";
 import moment, { type Moment } from "moment";
 import "moment/locale/fr";
@@ -35,12 +38,34 @@ import { StatusBar } from "expo-status-bar";
 import RipplePressable from "./components/RipplePressable";
 import Calendar from "./components/Calendar";
 import fetchPlanning from "./utils/fetchPlanning";
-import { Resource, Semester, Evaluation } from "./types/Notes";
+import { Resource, Semester, Evaluation, Distribution } from "./types/Notes";
 import fetchNotes from "./utils/fetchNotes";
 import { deleteItemAsync, getItemAsync, setItemAsync } from "expo-secure-store";
 import app from "./app.json";
 import BottomModal from "./components/BottomModal";
 import fetchPromos from "./utils/fetchPromos";
+import Graph from "./components/Graph";
+import fetchNoteDistribution from "./utils/fetchNoteDistribution";
+import { Message } from "./types/Message";
+import fetchMessages from "./utils/fetchMessages";
+import { Hyperlink } from "react-native-hyperlink";
+import PageModal from "./components/PageModal";
+import ImageVisualizer from "./components/ImageVisualizer";
+import { isDevice } from "expo-device";
+import Constants from "expo-constants";
+import {
+	type Notification,
+	setNotificationHandler,
+	setNotificationChannelAsync,
+	AndroidImportance,
+	getPermissionsAsync,
+	requestPermissionsAsync,
+	getExpoPushTokenAsync,
+	addNotificationReceivedListener,
+	addNotificationResponseReceivedListener,
+	removeNotificationSubscription,
+} from "expo-notifications";
+import Colors from "./constants/Colors";
 
 enum ColorType {
 	Pastel,
@@ -57,7 +82,8 @@ const MAX_COLORS = 12;
 const PLANNING_START = 8;
 const PLANNING_END = 20;
 const MIN_MEAL_TIME = 10;
-const MAX_MEAL_TIME = 14;
+const MAX_MEAL_TIME = 16;
+const IDEAL_MEAL_TIME = 12;
 const MIN_MEAL_DURATION = 30;
 const DEFAULT_PAGE = 1;
 
@@ -70,6 +96,55 @@ preventAutoHideAsync();
 moment.locale("fr");
 
 let alreadyAnimated = false;
+
+setNotificationHandler({
+	handleNotification: async () => ({
+		shouldShowAlert: true,
+		shouldPlaySound: false,
+		shouldSetBadge: true,
+	}),
+});
+
+async function registerForPushNotificationsAsync() {
+	if (Platform.OS === "android") {
+		await setNotificationChannelAsync("default", {
+			name: "default",
+			importance: AndroidImportance.MAX,
+			vibrationPattern: [0, 250, 250, 250],
+			lightColor: Colors.light.accent,
+		});
+	}
+
+	if (!isDevice) return;
+
+	const { status: existingStatus } = await getPermissionsAsync();
+
+	if (existingStatus !== "granted") {
+		const { status } = await requestPermissionsAsync();
+		if (status !== "granted") return;
+	}
+
+	const token = await getExpoPushTokenAsync({
+		projectId: Constants.expoConfig!.extra!.eas.projectId,
+	});
+
+	return token.data;
+}
+
+function translateSizeToBits(size: number) {
+	const units = ["o", "Ko", "Mo", "Go", "To"];
+	let unit = 0;
+
+	while (size > 1024) {
+		size /= 1024;
+		unit++;
+	}
+
+	return `${size.toLocaleString("fr", {
+		maximumFractionDigits: 2,
+		minimumFractionDigits: 2,
+	})} ${units[unit]}`;
+}
 
 function getDefaultSemester(semesters: Semester[]) {
 	const now = moment();
@@ -115,6 +190,11 @@ function getMealEvent(dayEvents: PlanningEvent[]) {
 				e.start.hour() >= MIN_MEAL_TIME &&
 				e.end.hour() <= MAX_MEAL_TIME
 		)
+		.sort(
+			(a, b) =>
+				Math.abs(a.duration - IDEAL_MEAL_TIME) -
+				Math.abs(b.duration - IDEAL_MEAL_TIME)
+		)
 		.sort((a, b) => b.duration - a.duration);
 
 	return sortedHoles[0] ?? null;
@@ -150,8 +230,9 @@ function getSectionAverage(section: Resource[]) {
 }
 
 export default function App() {
+	const time = moment();
+
 	const [planningData, setPlanningData] = useState<Planning>({});
-	const [time, setTime] = useState(moment());
 	const [selectedDate, setSelectedDate] = useState(moment());
 	const [calendarDeployed, setCalendarDeployed] = useState(false);
 	const [dayEvents, setDayEvents] = useState<PlanningEvent[]>([]);
@@ -161,15 +242,33 @@ export default function App() {
 	const [username, setUsername] = useState("");
 	const [password, setPassword] = useState("");
 	const [fetchingNotes, setFetchingNotes] = useState(false);
-	const [hasAuth, setHasAuth] = useState(false);
+	const [auth, setAuth] = useState<Auth | null>(null);
 	const [editingPromo, setEditingPromo] = useState(false);
 	const [passwordVisible, setPasswordVisible] = useState(false);
 	const [disconnectModalVisible, setDisconnectModalVisible] = useState(false);
 	const [disconnecting, setDisconnecting] = useState(false);
 	const [settings, setSettings] = useState(DefaultSettings);
 	const [selectedNote, setSelectedNote] = useState<Evaluation | null>(null);
-	const [promo, setPromo] = useState<Promo | null>(null);
-	const [promos, setPromos] = useState<(Promo & { fetching: boolean })[]>([]);
+	const [promos, setPromos] = useState<Promos>({});
+	const [messages, setMessages] = useState<Message[]>([]);
+	const [selectedMessage, setSelectedMessage] = useState<Message | null>(null);
+	const [lastSeen, setLastSeen] = useState<Moment | null>(null);
+	const [expoPushToken, setExpoPushToken] = useState<string | null>(null);
+
+	const [promo, setPromo] = useState<
+		({ sector: Sector } | (Promo & { sector: Sector })) | null
+	>(null);
+
+	const [image, setImage] = useState<{
+		url: string;
+		width: number;
+		height: number;
+	} | null>(null);
+
+	const [noteDistribution, setNoteDistribution] = useState<Distribution | null>(
+		null
+	);
+
 	const [darkTheme, setDarkTheme] = useState(
 		Appearance.getColorScheme() === "dark"
 	);
@@ -184,29 +283,70 @@ export default function App() {
 		global: null,
 	});
 
-	function changePromo(promo: Promo & { fetching: boolean }) {
+	function selectMessage(message: Message | null) {
+		setSelectedMessage(message);
+
+		if (message && (!lastSeen || moment(message.timestamp).isAfter(lastSeen))) {
+			setLastSeen(moment(message.timestamp));
+			setItemAsync("last_checked", message.timestamp);
+		}
+	}
+
+	async function selectNote(note: Evaluation | null) {
+		setSelectedNote(note);
+		if (!note || !auth) return setNoteDistribution(null);
+
+		const [success, distribution] = await fetchNoteDistribution(
+			note.id,
+			auth.username,
+			auth.password
+		);
+
+		if (success) setNoteDistribution(distribution);
+	}
+
+	async function changePlanning() {
+		setEditingPromo(true);
+		setPromo(null);
+		setPlanningData({});
+	}
+
+	function changeSector(sector: Sector) {
+		setEditingPromo(true);
+		setPromo({ sector });
+	}
+
+	async function changePromo(p: Promo & { fetching: boolean }) {
 		setEditingPromo(false);
-		setPromo(promo);
+		setPromo({ ...promo, sector: promo!.sector });
 
-		promos.forEach((p) => (p.fetching = false));
-		promo.fetching = true;
-		setPromos([...promos]);
+		Object.values(promos)
+			.flat()
+			.forEach((p) => (p.fetching = false));
 
-		fetchPlanning(promo.year, promo.campus, promo.group).then(
+		p.fetching = true;
+
+		setPromos({ ...promos });
+
+		fetchPlanning(promo!.sector, p.year, p.campus, p.group, expoPushToken).then(
 			([success, data]) => {
 				if (success) {
 					setPlanningData(data);
 					const events = data[moment().format("YYYY-MM-DD")] ?? [];
 					setDayEvents(events);
 					setMealEvent(getMealEvent(events));
-					setItemAsync("promo", JSON.stringify(promo));
+
+					setItemAsync(
+						"promo",
+						JSON.stringify({ sector: promo!.sector, ...p })
+					);
 				} else {
 					deleteItemAsync("promo");
 					setPromo(null);
 				}
 
-				promo.fetching = false;
-				setPromos([...promos]);
+				p.fetching = false;
+				setPromos({ ...promos });
 			}
 		);
 	}
@@ -252,7 +392,7 @@ export default function App() {
 		await setItemAsync("auth", JSON.stringify({ username, password }));
 		setSemesters(semesters);
 		setSelectedSemester(getDefaultSemester(semesters));
-		setHasAuth(true);
+		setAuth({ username, password });
 		setUsername("");
 		setPassword("");
 		setErrors({
@@ -264,7 +404,7 @@ export default function App() {
 
 	async function disconnect() {
 		setDisconnecting(true);
-		setHasAuth(false);
+		setAuth(null);
 		setSemesters([]);
 		setSelectedSemester(0);
 		await deleteItemAsync("auth");
@@ -285,33 +425,21 @@ export default function App() {
 	});
 
 	useEffect(() => {
-		fetchPromos().then((data) => {
-			setPromos(data.map((promo) => ({ ...promo, fetching: false })));
-		});
+		registerForPushNotificationsAsync().then((token) => {
+			setExpoPushToken(token ?? null);
 
-		getItemAsync("auth").then((data) => {
-			if (!data) return;
-			const auth: Auth = JSON.parse(data);
-			setHasAuth(true);
+			getItemAsync("promo").then((data) => {
+				if (!data) return setEditingPromo(true);
+				const promo: Promo & { sector: Sector } = JSON.parse(data);
+				setPromo(promo);
 
-			fetchNotes(auth.username, auth.password).then(([success, data]) => {
-				if (success) {
-					setSemesters(data);
-					setSelectedSemester(getDefaultSemester(data));
-				} else {
-					setHasAuth(false);
-					deleteItemAsync("auth");
-				}
-			});
-		});
-
-		getItemAsync("promo").then((data) => {
-			if (!data) return setEditingPromo(true);
-			const promo: Promo = JSON.parse(data);
-			setPromo(promo);
-
-			fetchPlanning(promo.year, promo.campus, promo.group).then(
-				([success, data]) => {
+				fetchPlanning(
+					promo.sector,
+					promo.year,
+					promo.campus,
+					promo.group,
+					token ?? null
+				).then(([success, data]) => {
 					if (success) {
 						setPlanningData(data);
 						const events = data[moment().format("YYYY-MM-DD")] ?? [];
@@ -322,8 +450,41 @@ export default function App() {
 						setEditingPromo(true);
 						setPromo(null);
 					}
+				});
+			});
+		});
+
+		fetchPromos().then((data) => {
+			const promos: Promos = {};
+
+			for (const sector in data) {
+				promos[sector] = data[sector].map((promo) => ({
+					...promo,
+					fetching: false,
+				}));
+			}
+
+			setPromos(promos);
+		});
+
+		fetchMessages().then((data) => {
+			setMessages(data);
+		});
+
+		getItemAsync("auth").then((data) => {
+			if (!data) return;
+			const auth: Auth = JSON.parse(data);
+			setAuth(auth);
+
+			fetchNotes(auth.username, auth.password).then(([success, data]) => {
+				if (success) {
+					setSemesters(data);
+					setSelectedSemester(getDefaultSemester(data));
+				} else {
+					setAuth(null);
+					deleteItemAsync("auth");
 				}
-			);
+			});
 		});
 
 		getItemAsync("settings").then((data) => {
@@ -331,20 +492,29 @@ export default function App() {
 			setSettings(JSON.parse(data));
 		});
 
-		const interval = setInterval(() => setTime(moment()), 1000);
-		return () => clearInterval(interval);
+		getItemAsync("last_checked").then((data) => {
+			if (!data) return;
+			setLastSeen(moment(data));
+		});
 	}, []);
 
 	const onLayoutRootView = useCallback(async () => {
-		if (fontsLoaded && promos.length > 0) return await hideAsync();
+		if (fontsLoaded && Object.keys(promos).length > 0) return await hideAsync();
 	}, [fontsLoaded, promos]);
 
-	if (!fontsLoaded || promos.length === 0) return null;
+	if (!fontsLoaded || Object.keys(promos).length === 0) return null;
 
 	return (
 		<EventProvider onLayout={onLayoutRootView}>
-			<GestureHandlerRootView style={styles.container}>
+			<GestureHandlerRootView
+				style={[styles.container, { backgroundColor: getTheme().primary }]}
+			>
 				<StatusBar style="light" />
+				<ImageVisualizer
+					image={image}
+					onClose={() => setImage(null)}
+					padding={25}
+				/>
 				<BottomModal
 					title="Déconnexion"
 					visible={disconnectModalVisible}
@@ -384,7 +554,7 @@ export default function App() {
 				<BottomModal
 					title={selectedNote?.title ?? null}
 					visible={!!selectedNote}
-					onClose={() => setSelectedNote(null)}
+					onClose={() => selectedNote && selectNote(null)}
 				>
 					<Text style={styles.evalItem}>
 						<Text style={styles.evalItemLabel}>Note</Text>
@@ -419,6 +589,20 @@ export default function App() {
 							minimumFractionDigits: 2,
 						})}
 					</Text>
+					{noteDistribution ? (
+						<Graph
+							padding={20}
+							distribution={noteDistribution}
+							note={selectedNote?.note ?? 0}
+						/>
+					) : (
+						<ActivityIndicator
+							size="large"
+							color="#29afa3"
+							style={styles.graphLoader}
+						/>
+					)}
+
 					<Text style={styles.dateText}>
 						{selectedNote?.date
 							? moment(selectedNote.date).format("ddd d MMM YYYY, HH[h]mm")
@@ -426,9 +610,8 @@ export default function App() {
 					</Text>
 				</BottomModal>
 				<BottomModal
-					title="Changer de planning"
+					title="Changer de promotion"
 					visible={editingPromo}
-					blockOtherInteractions
 					canBeClosed={false}
 					contentStyle={styles.planningChangeContent}
 					boxStyle={styles.planningChangeBottomModal}
@@ -437,37 +620,55 @@ export default function App() {
 						contentContainerStyle={styles.promoSelectorContainer}
 						showsVerticalScrollIndicator={false}
 					>
-						{promos.map((promo, index) => (
-							<Pressable
-								key={index}
-								style={styles.promoSelector}
-								onPress={() => changePromo(promo)}
-							>
-								<Text style={styles.promoText}>{promo.name}</Text>
-								{promo.fetching ? (
-									<View style={styles.arrowButtonActivityContainer}>
-										<ActivityIndicator
-											size="small"
-											color={getTheme().darkGray}
-										/>
-									</View>
-								) : (
-									<View style={styles.arrowButtonContainer}>
-										<MaterialIcons
-											name="arrow-forward"
-											size={20}
-											color={getTheme().light}
-										/>
-									</View>
-								)}
-							</Pressable>
-						))}
+						{promo?.sector
+							? promos[promo.sector].map((promo, index) => (
+									<Pressable
+										key={index}
+										style={styles.promoSelector}
+										onPress={() => changePromo(promo)}
+									>
+										<Text style={styles.promoText}>{promo.name}</Text>
+										{promo.fetching ? (
+											<View style={styles.arrowButtonActivityContainer}>
+												<ActivityIndicator
+													size="small"
+													color={getTheme().darkGray}
+												/>
+											</View>
+										) : (
+											<View style={styles.arrowButtonContainer}>
+												<MaterialIcons
+													name="arrow-forward"
+													size={20}
+													color={getTheme().light}
+												/>
+											</View>
+										)}
+									</Pressable>
+							  ))
+							: Object.keys(promos).map((sector, index) => (
+									<Pressable
+										key={index}
+										style={styles.promoSelector}
+										onPress={() => changeSector(sector as Sector)}
+									>
+										<Text style={styles.promoText}>{sector.toUpperCase()}</Text>
+										<View style={styles.arrowButtonContainer}>
+											<MaterialIcons
+												name="arrow-forward"
+												size={20}
+												color={getTheme().light}
+											/>
+										</View>
+									</Pressable>
+							  ))}
 					</ScrollView>
 				</BottomModal>
 				<View style={styles.head}>
 					<Image
-						source={require("./assets/images/icon.png")}
+						source={require("./assets/images/upec.png")}
 						style={styles.appIcon}
+						resizeMode="center"
 					/>
 					<View style={styles.headText}>
 						<Text style={styles.appTitle}>{app.expo.name}</Text>
@@ -475,10 +676,10 @@ export default function App() {
 					</View>
 				</View>
 				<ScrollView
-					style={styles.container}
-					showsHorizontalScrollIndicator={false}
+					style={[styles.container, { backgroundColor: getTheme().primary }]}
 					horizontal
 					pagingEnabled
+					scrollEnabled={!selectedMessage}
 					ref={(ref) => {
 						if (alreadyAnimated) return;
 
@@ -493,7 +694,7 @@ export default function App() {
 						Keyboard.dismiss();
 						setDisconnectModalVisible(false);
 						setCalendarDeployed(false);
-						setSelectedNote(null);
+						if (selectedNote) selectNote(null);
 					}}
 				>
 					<View style={styles.page}>
@@ -582,7 +783,7 @@ export default function App() {
 							<View style={styles.settingItem}>
 								<Pressable
 									style={styles.settingButton}
-									onPress={() => setEditingPromo(true)}
+									onPress={() => changePlanning()}
 								>
 									<MaterialIcons
 										name="edit-calendar"
@@ -590,10 +791,7 @@ export default function App() {
 										color={getTheme().header}
 									/>
 									<Text style={styles.settingButtonText}>
-										Changer de planning
-									</Text>
-									<Text style={styles.settingButtonDescription}>
-										({promo?.name})
+										Changer de promotion
 									</Text>
 								</Pressable>
 							</View>
@@ -611,6 +809,59 @@ export default function App() {
 										Déconnexion
 									</Text>
 								</Pressable>
+							</View>
+						</View>
+						<View style={styles.settingContainer}>
+							<View style={styles.settingCategoryTitleContainer}>
+								<Image
+									source={require("./assets/images/information.png")}
+									style={styles.settingCategoryTitleIcon}
+								/>
+								<Text style={styles.settingCategoryTitle}>Informations</Text>
+							</View>
+							<View style={styles.settingItem}>
+								<Text style={styles.settingItemTitle}>
+									Version de l'application
+								</Text>
+								<Text style={styles.settingItemValue}>@{app.expo.version}</Text>
+							</View>
+							<View style={styles.settingItem}>
+								<Text style={styles.settingItemTitle}>Développeur</Text>
+								<Text style={styles.settingItemValue}>Du Cassoulet</Text>
+							</View>
+							<View style={styles.settingItem}>
+								<Text style={styles.settingItemTitle}>
+									Administrateur réseau
+								</Text>
+								<Text style={styles.settingItemValue}>WonderHunter</Text>
+							</View>
+							<View style={styles.settingItem}>
+								<Text style={styles.settingItemTitle}>Licence</Text>
+								<Text style={styles.settingItemValue}>MIT</Text>
+							</View>
+							<View style={styles.settingItem}>
+								<Text style={styles.settingItemTitle}>Code source</Text>
+								<Text
+									style={styles.settingItemValue}
+									onPress={() =>
+										Linking.openURL(
+											"https://github.com/du-cassoulet/planning-app/tree/master/app"
+										)
+									}
+								>
+									du-cassoulet/planning-app
+								</Text>
+							</View>
+							<View style={styles.settingItem}>
+								<Text style={styles.settingItemTitle}>Contact</Text>
+								<Text
+									style={styles.settingItemValue}
+									onPress={() =>
+										Linking.openURL("mailto:gaston.chenet@etu.u-pec.fr")
+									}
+								>
+									gaston.chenet@etu.u-pec.fr
+								</Text>
 							</View>
 						</View>
 					</View>
@@ -833,244 +1084,338 @@ export default function App() {
 							</View>
 						</ScrollView>
 					</View>
-					<View style={styles.page}>
-						{!hasAuth && semesters.length === 0 && (
-							<React.Fragment>
-								<View style={styles.subHead}>
-									<Text style={styles.subHeadDay}>Notes</Text>
-								</View>
-								<View style={styles.connectionPage}>
-									<View style={styles.noteHeader}>
-										<Text style={styles.noteHeaderLabel}>Connexion</Text>
-										<Text style={styles.meanText}>
-											Veuillez entrer vos identifiants pour accéder à vos notes.
-										</Text>
+					{promo?.sector === Sector.Info && (
+						<View style={styles.page}>
+							{!auth && semesters.length === 0 && (
+								<React.Fragment>
+									<View style={styles.subHead}>
+										<Text style={styles.subHeadDay}>Notes</Text>
 									</View>
-									<View style={styles.form}>
-										<View>
-											<View style={styles.fieldTitleContainer}>
-												<MaterialIcons
-													name="person"
-													size={16}
-													color={getTheme().header80}
-												/>
-												<Text style={styles.fieldTitle}>Identifiant</Text>
-											</View>
-											<View style={styles.fieldContainer}>
-												<TextInput
-													style={styles.fieldInput}
-													autoCapitalize="none"
-													autoCorrect={false}
-													underlineColorAndroid="transparent"
-													placeholder="Entrez votre identifiant"
-													placeholderTextColor={getTheme().lightGray}
-													value={username}
-													onChangeText={setUsername}
-												/>
-											</View>
-											{errors.username && (
-												<Text style={styles.errorText}>{errors.username}</Text>
-											)}
-										</View>
-										<View>
-											<View style={styles.fieldTitleContainer}>
-												<MaterialIcons
-													name="lock"
-													size={16}
-													color={getTheme().header80}
-												/>
-												<Text style={styles.fieldTitle}>Mot de passe</Text>
-											</View>
-											<View style={styles.fieldContainer}>
-												<TextInput
-													style={styles.fieldInput}
-													autoCapitalize="none"
-													autoCorrect={false}
-													underlineColorAndroid="transparent"
-													placeholder="Entrez votre mot de passe"
-													placeholderTextColor={getTheme().lightGray}
-													secureTextEntry={!passwordVisible}
-													value={password}
-													onChangeText={setPassword}
-												/>
-												<Pressable
-													onPress={() => setPasswordVisible(!passwordVisible)}
-													style={styles.passwordVisibility}
-												>
-													<MaterialIcons
-														name={
-															passwordVisible ? "visibility" : "visibility-off"
-														}
-														size={20}
-														color={getTheme().header80}
-													/>
-												</Pressable>
-											</View>
-											{errors.password && (
-												<Text style={styles.errorText}>{errors.password}</Text>
-											)}
-										</View>
-										<RipplePressable
-											duration={500}
-											rippleColor="#fff3"
-											onPress={connect}
-											style={styles.connectButton}
-										>
-											{fetchingNotes && (
-												<ActivityIndicator
-													size="small"
-													color={getTheme().white}
-												/>
-											)}
-											<MaterialIcons
-												name="login"
-												size={20}
-												color={getTheme().white80}
-											/>
-											<Text style={styles.connectButtonText}>Se connecter</Text>
-										</RipplePressable>
-										{errors.global && (
-											<Text style={styles.errorText}>{errors.global}</Text>
-										)}
-									</View>
-								</View>
-							</React.Fragment>
-						)}
-						{hasAuth && semesters.length === 0 && (
-							<View style={styles.connectionPage}>
-								<View style={styles.subHead}>
-									<Text style={styles.subHeadDay}>Chargement...</Text>
-								</View>
-								<View style={styles.loadingContainer}>
-									<ActivityIndicator size="large" color={getTheme().accent} />
-								</View>
-							</View>
-						)}
-						{semesters.length > 0 && (
-							<React.Fragment>
-								<View style={styles.subHead}>
-									<View style={styles.subHeadDayInfo}>
-										<Text style={styles.subHeadDay}>
-											Semestre {semesters[selectedSemester].num}
-										</Text>
-										<Text style={styles.subHeadDayBounds}>
-											({semesters[selectedSemester].rank}/
-											{semesters[selectedSemester].groupSize} de la promotion)
-										</Text>
-									</View>
-									<View style={styles.subHeadDayInfo}>
-										<RipplePressable
-											duration={500}
-											rippleColor="#0001"
-											style={styles.subHeadButton}
-											onPress={() =>
-												setSelectedSemester(Math.max(selectedSemester - 1, 0))
-											}
-										>
-											<MaterialIcons
-												name="keyboard-arrow-left"
-												size={24}
-												color="white"
-											/>
-										</RipplePressable>
-										<RipplePressable
-											duration={500}
-											rippleColor="#0001"
-											style={styles.subHeadButton}
-											onPress={() =>
-												setSelectedSemester(
-													Math.min(selectedSemester + 1, semesters.length - 1)
-												)
-											}
-										>
-											<MaterialIcons
-												name="keyboard-arrow-right"
-												size={24}
-												color="white"
-											/>
-										</RipplePressable>
-									</View>
-								</View>
-								<ScrollView
-									showsVerticalScrollIndicator={false}
-									contentContainerStyle={styles.resourceContainer}
-								>
-									<View style={styles.noteHeader}>
-										<Text style={styles.noteHeaderLabel}>Moyennes</Text>
-										<Text style={styles.meanText}>
-											Voici vos moyennes pour le semestre{" "}
-											{semesters[selectedSemester].num}.
-										</Text>
-									</View>
-									<View style={styles.meanContainer}>
-										<View style={styles.userMeanContent}>
-											<Text style={styles.userMeanLabel}>Moyenne générale</Text>
-											<Text style={styles.userMeanValue}>
-												{semesters[selectedSemester].note.toLocaleString(
-													"fr-FR",
-													{
-														maximumFractionDigits: 2,
-														minimumFractionDigits: 2,
-													}
-												)}
+									<View style={styles.connectionPage}>
+										<View style={styles.noteHeader}>
+											<Text style={styles.noteHeaderLabel}>Connexion</Text>
+											<Text style={styles.meanText}>
+												Veuillez entrer vos identifiants pour accéder à vos
+												notes.
 											</Text>
 										</View>
-										<View style={styles.notesRow}>
-											<View style={styles.classMeanContent}>
-												<Text style={styles.userMeanLabel}>Maximum</Text>
-												<Text style={styles.userMeanValue}>
-													{semesters[selectedSemester].max_note.toLocaleString(
-														"fr-FR",
-														{
-															maximumFractionDigits: 2,
-															minimumFractionDigits: 2,
-														}
-													)}
-												</Text>
+										<View style={styles.form}>
+											<View>
+												<View style={styles.fieldTitleContainer}>
+													<MaterialIcons
+														name="person"
+														size={16}
+														color={getTheme().header80}
+													/>
+													<Text style={styles.fieldTitle}>Identifiant</Text>
+												</View>
+												<View style={styles.fieldContainer}>
+													<TextInput
+														style={styles.fieldInput}
+														autoCapitalize="none"
+														autoCorrect={false}
+														underlineColorAndroid="transparent"
+														placeholder="Entrez votre identifiant"
+														placeholderTextColor={getTheme().lightGray}
+														value={username}
+														onChangeText={setUsername}
+													/>
+												</View>
+												{errors.username && (
+													<Text style={styles.errorText}>
+														{errors.username}
+													</Text>
+												)}
 											</View>
-											<View style={styles.classMeanContent}>
-												<Text style={styles.userMeanLabel}>Classe</Text>
-												<Text style={styles.userMeanValue}>
-													{semesters[selectedSemester].average.toLocaleString(
-														"fr-FR",
-														{
-															maximumFractionDigits: 2,
-															minimumFractionDigits: 2,
-														}
-													)}
-												</Text>
+											<View>
+												<View style={styles.fieldTitleContainer}>
+													<MaterialIcons
+														name="lock"
+														size={16}
+														color={getTheme().header80}
+													/>
+													<Text style={styles.fieldTitle}>Mot de passe</Text>
+												</View>
+												<View style={styles.fieldContainer}>
+													<TextInput
+														style={styles.fieldInput}
+														autoCapitalize="none"
+														autoCorrect={false}
+														underlineColorAndroid="transparent"
+														placeholder="Entrez votre mot de passe"
+														placeholderTextColor={getTheme().lightGray}
+														secureTextEntry={!passwordVisible}
+														value={password}
+														onChangeText={setPassword}
+													/>
+													<Pressable
+														onPress={() => setPasswordVisible(!passwordVisible)}
+														style={styles.passwordVisibility}
+													>
+														<MaterialIcons
+															name={
+																passwordVisible
+																	? "visibility"
+																	: "visibility-off"
+															}
+															size={20}
+															color={getTheme().header80}
+														/>
+													</Pressable>
+												</View>
+												{errors.password && (
+													<Text style={styles.errorText}>
+														{errors.password}
+													</Text>
+												)}
 											</View>
-											<View style={styles.classMeanContent}>
-												<Text style={styles.userMeanLabel}>Minimum</Text>
-												<Text style={styles.userMeanValue}>
-													{semesters[selectedSemester].min_note.toLocaleString(
-														"fr-FR",
-														{
-															maximumFractionDigits: 2,
-															minimumFractionDigits: 2,
-														}
-													)}
+											<RipplePressable
+												duration={500}
+												rippleColor="#fff3"
+												onPress={connect}
+												style={styles.connectButton}
+											>
+												{fetchingNotes && (
+													<ActivityIndicator
+														size="small"
+														color={getTheme().white}
+													/>
+												)}
+												<MaterialIcons
+													name="login"
+													size={20}
+													color={getTheme().white80}
+												/>
+												<Text style={styles.connectButtonText}>
+													Se connecter
 												</Text>
-											</View>
+											</RipplePressable>
+											{errors.global && (
+												<Text style={styles.errorText}>{errors.global}</Text>
+											)}
 										</View>
 									</View>
-									<View style={styles.noteHeader}>
-										<Text style={styles.noteHeaderLabel}>Matières</Text>
-										<Text style={styles.meanText}>
-											Moyenne :{" "}
-											{getSectionAverage(
-												semesters[selectedSemester].resources
-											) || "~"}
-										</Text>
+								</React.Fragment>
+							)}
+							{auth && semesters.length === 0 && (
+								<View style={styles.connectionPage}>
+									<View style={styles.subHead}>
+										<Text style={styles.subHeadDay}>Chargement...</Text>
 									</View>
-									<View style={styles.classes}>
-										{semesters[selectedSemester].resources.map(
-											(resource, i) => (
+									<View style={styles.loadingContainer}>
+										<ActivityIndicator size="large" color={getTheme().accent} />
+									</View>
+								</View>
+							)}
+							{semesters.length > 0 && (
+								<React.Fragment>
+									<View style={styles.subHead}>
+										<View style={styles.subHeadDayInfo}>
+											<Text style={styles.subHeadDay}>
+												Semestre {semesters[selectedSemester].num}
+											</Text>
+											<Text style={styles.subHeadDayBounds}>
+												({semesters[selectedSemester].rank}/
+												{semesters[selectedSemester].groupSize} de la promotion)
+											</Text>
+										</View>
+										<View style={styles.subHeadDayInfo}>
+											<RipplePressable
+												duration={500}
+												rippleColor="#0001"
+												style={styles.subHeadButton}
+												onPress={() =>
+													setSelectedSemester(Math.max(selectedSemester - 1, 0))
+												}
+											>
+												<MaterialIcons
+													name="keyboard-arrow-left"
+													size={24}
+													color="white"
+												/>
+											</RipplePressable>
+											<RipplePressable
+												duration={500}
+												rippleColor="#0001"
+												style={styles.subHeadButton}
+												onPress={() =>
+													setSelectedSemester(
+														Math.min(selectedSemester + 1, semesters.length - 1)
+													)
+												}
+											>
+												<MaterialIcons
+													name="keyboard-arrow-right"
+													size={24}
+													color="white"
+												/>
+											</RipplePressable>
+										</View>
+									</View>
+									<ScrollView
+										showsVerticalScrollIndicator={false}
+										contentContainerStyle={styles.resourceContainer}
+									>
+										<View style={styles.noteHeader}>
+											<Text style={styles.noteHeaderLabel}>Moyennes</Text>
+											<Text style={styles.meanText}>
+												Voici vos moyennes pour le semestre{" "}
+												{semesters[selectedSemester].num}.
+											</Text>
+										</View>
+										<View style={styles.meanContainer}>
+											<View style={styles.userMeanContent}>
+												<Text style={styles.userMeanLabel}>
+													Moyenne générale
+												</Text>
+												<Text style={styles.userMeanValue}>
+													{semesters[selectedSemester].note.toLocaleString(
+														"fr-FR",
+														{
+															maximumFractionDigits: 2,
+															minimumFractionDigits: 2,
+														}
+													)}
+												</Text>
+											</View>
+											<View style={styles.notesRow}>
+												<View style={styles.classMeanContent}>
+													<Text style={styles.userMeanLabel}>Maximum</Text>
+													<Text style={styles.userMeanValue}>
+														{semesters[
+															selectedSemester
+														].max_note.toLocaleString("fr-FR", {
+															maximumFractionDigits: 2,
+															minimumFractionDigits: 2,
+														})}
+													</Text>
+												</View>
+												<View style={styles.classMeanContent}>
+													<Text style={styles.userMeanLabel}>Classe</Text>
+													<Text style={styles.userMeanValue}>
+														{semesters[selectedSemester].average.toLocaleString(
+															"fr-FR",
+															{
+																maximumFractionDigits: 2,
+																minimumFractionDigits: 2,
+															}
+														)}
+													</Text>
+												</View>
+												<View style={styles.classMeanContent}>
+													<Text style={styles.userMeanLabel}>Minimum</Text>
+													<Text style={styles.userMeanValue}>
+														{semesters[
+															selectedSemester
+														].min_note.toLocaleString("fr-FR", {
+															maximumFractionDigits: 2,
+															minimumFractionDigits: 2,
+														})}
+													</Text>
+												</View>
+											</View>
+										</View>
+										<View style={styles.noteHeader}>
+											<Text style={styles.noteHeaderLabel}>Matières</Text>
+											<Text style={styles.meanText}>
+												Moyenne :{" "}
+												{getSectionAverage(
+													semesters[selectedSemester].resources
+												) || "~"}
+											</Text>
+										</View>
+										<View style={styles.classes}>
+											{semesters[selectedSemester].resources.map(
+												(resource, i) => (
+													<View key={i} style={styles.class}>
+														<View
+															style={[
+																styles.classHeader,
+																{ backgroundColor: getTheme().blue },
+															]}
+														>
+															<Text style={styles.average}>
+																{resource.evaluations.length
+																	? getAverage(resource).toLocaleString(
+																			"fr-FR",
+																			{
+																				maximumFractionDigits: 2,
+																				minimumFractionDigits: 2,
+																			}
+																	  )
+																	: "~"}
+															</Text>
+															<Text style={styles.resourceTitle}>
+																{resource.title}
+															</Text>
+														</View>
+														<View style={styles.notes}>
+															{resource.evaluations.length === 0 && (
+																<Text style={styles.noteContent}>
+																	Aucune note pour cette matière
+																</Text>
+															)}
+															{resource.evaluations.map((evaluation, j) => (
+																<Pressable
+																	onPress={() => selectNote(evaluation)}
+																	key={j}
+																	style={[
+																		styles.note,
+																		{
+																			borderBottomWidth:
+																				evaluation.date &&
+																				moment(evaluation.date).isSame(
+																					moment(),
+																					"day"
+																				)
+																					? 2
+																					: 0,
+																		},
+																	]}
+																>
+																	<Text
+																		style={[
+																			styles.noteContent,
+																			{
+																				fontFamily:
+																					evaluation.note < 10
+																						? "Rubik-Bold"
+																						: "Rubik-Regular",
+																			},
+																		]}
+																	>
+																		{evaluation.note.toLocaleString("fr-FR", {
+																			maximumFractionDigits: 2,
+																			minimumFractionDigits: 0,
+																		})}
+																	</Text>
+																	{evaluation.coefficient !== 1 && (
+																		<Text style={styles.coef}>
+																			({evaluation.coefficient})
+																		</Text>
+																	)}
+																</Pressable>
+															))}
+														</View>
+													</View>
+												)
+											)}
+										</View>
+										<View style={styles.noteHeader}>
+											<Text style={styles.noteHeaderLabel}>SAÉ</Text>
+											<Text style={styles.meanText}>
+												Moyenne :{" "}
+												{getSectionAverage(semesters[selectedSemester].saes) ||
+													"~"}
+											</Text>
+										</View>
+										<View style={styles.classes}>
+											{semesters[selectedSemester].saes.map((resource, i) => (
 												<View key={i} style={styles.class}>
 													<View
 														style={[
 															styles.classHeader,
-															{ backgroundColor: getTheme().blue },
+															{ backgroundColor: getTheme().pink },
 														]}
 													>
 														<Text style={styles.average}>
@@ -1093,7 +1438,7 @@ export default function App() {
 														)}
 														{resource.evaluations.map((evaluation, j) => (
 															<Pressable
-																onPress={() => setSelectedNote(evaluation)}
+																onPress={() => selectNote(evaluation)}
 																key={j}
 																style={[
 																	styles.note,
@@ -1134,93 +1479,223 @@ export default function App() {
 														))}
 													</View>
 												</View>
+											))}
+										</View>
+									</ScrollView>
+								</React.Fragment>
+							)}
+						</View>
+					)}
+					{promo?.sector === Sector.Info && auth && (
+						<View style={styles.page}>
+							<View style={styles.subHead}>
+								<View style={styles.subHeadDayInfo}>
+									<Text style={styles.subHeadDay}>Informations</Text>
+								</View>
+							</View>
+							<View style={styles.messagesContainer}>
+								<ScrollView>
+									{messages.map((message, index) => (
+										<RipplePressable
+											key={index}
+											style={[
+												styles.messageButton,
+												{
+													borderTopWidth: index === 0 ? 0 : 1,
+												},
+											]}
+											duration={500}
+											rippleColor={
+												Appearance.getColorScheme() === "dark"
+													? "#fff3"
+													: "#0001"
+											}
+											onPress={() => selectMessage(message)}
+										>
+											<Image
+												source={
+													message.author_avatar
+														? { uri: message.author_avatar }
+														: require("./assets/images/icon.png")
+												}
+												style={styles.messageAvatar}
+											/>
+											<View style={styles.messageElement}>
+												<View style={styles.messageElementHead}>
+													{moment(message.timestamp).isAfter(lastSeen) && (
+														<MaterialIcons
+															name="circle"
+															size={8}
+															color={getTheme().accent}
+														/>
+													)}
+													<Text style={styles.messageUsername}>
+														{message.author_username}
+													</Text>
+													<Text style={styles.messageTimestamp}>
+														{moment(message.timestamp).format("ddd D MMM")}
+													</Text>
+												</View>
+												{message.content.length > 0 && (
+													<Text
+														style={styles.messagePreview}
+														numberOfLines={3}
+														ellipsizeMode="tail"
+													>
+														{message.content.replace(/\n/g, " ")}
+													</Text>
+												)}
+												{message.attachments.length > 0 && (
+													<View
+														style={{
+															flexDirection: "row",
+															gap: 5,
+															alignItems: "center",
+															marginTop: message.content.length > 0 ? 5 : 0,
+														}}
+													>
+														<FontAwesome6
+															name="paperclip"
+															size={14}
+															color={getTheme().darkGray}
+														/>
+														<Text
+															style={{
+																fontFamily: "Rubik-Regular",
+																color: getTheme().darkGray,
+																fontSize: 12,
+															}}
+															numberOfLines={3}
+															ellipsizeMode="tail"
+														>
+															{message.attachments.length > 1
+																? `${message.attachments.length} pièces jointes`
+																: `${message.attachments[0].filename}`}
+														</Text>
+													</View>
+												)}
+											</View>
+										</RipplePressable>
+									))}
+								</ScrollView>
+								<PageModal
+									visible={!!selectedMessage}
+									onClose={() => selectMessage(null)}
+									head={
+										<View style={styles.messageHead}>
+											<Image
+												source={
+													selectedMessage?.author_avatar
+														? { uri: selectedMessage?.author_avatar }
+														: require("./assets/images/icon.png")
+												}
+												style={styles.authorAvatar}
+											/>
+											<View>
+												<Text style={styles.messageAuthor}>
+													{selectedMessage?.author_username}
+												</Text>
+												<Text style={styles.messageDate}>
+													{moment(selectedMessage?.timestamp).format(
+														"dddd Do MMMM YYYY, HH[h]mm"
+													)}
+												</Text>
+											</View>
+										</View>
+									}
+								>
+									{selectedMessage && (
+										<Hyperlink
+											linkStyle={styles.linkStyle}
+											linkDefault
+											style={styles.messageContainer}
+										>
+											<Text style={styles.messageContent}>
+												{selectedMessage?.content}
+											</Text>
+										</Hyperlink>
+									)}
+									<View style={styles.attachments}>
+										{selectedMessage?.attachments.map((attachment, i) =>
+											attachment.type.startsWith("image/") ? (
+												<Pressable
+													key={i}
+													onPress={() =>
+														setImage({
+															url: attachment.url,
+															height: attachment.height,
+															width: attachment.width,
+														})
+													}
+												>
+													<Image
+														source={{ uri: attachment.url }}
+														style={styles.attachmentImage}
+														resizeMode="cover"
+													/>
+												</Pressable>
+											) : (
+												<RipplePressable
+													key={i}
+													onPress={() => Linking.openURL(attachment.url)}
+													style={styles.attachmentFile}
+													duration={500}
+													rippleColor={
+														Appearance.getColorScheme() === "dark"
+															? "#fff1"
+															: "#0001"
+													}
+												>
+													<View style={styles.attachmentIcon}>
+														{attachment.type.startsWith("application/pdf") ? (
+															<FontAwesome6
+																name="file-pdf"
+																size={20}
+																color={getTheme().accent}
+															/>
+														) : attachment.type.startsWith(
+																"application/msword"
+														  ) ? (
+															<FontAwesome6
+																name="file-word"
+																size={20}
+																color={getTheme().accent}
+															/>
+														) : (
+															<FontAwesome6
+																name="file"
+																size={20}
+																color={getTheme().accent}
+															/>
+														)}
+													</View>
+													<View style={styles.attachmentInfo}>
+														<Text
+															style={styles.attachmentFilename}
+															numberOfLines={1}
+															ellipsizeMode="tail"
+														>
+															{attachment.filename}
+														</Text>
+														<Text style={styles.attachmentSize}>
+															{translateSizeToBits(attachment.size)}
+														</Text>
+													</View>
+													<View style={styles.attachmentIcon}>
+														<MaterialIcons
+															name="download"
+															size={24}
+															color={getTheme().gray}
+														/>
+													</View>
+												</RipplePressable>
 											)
 										)}
 									</View>
-									<View style={styles.noteHeader}>
-										<Text style={styles.noteHeaderLabel}>SAÉ</Text>
-										<Text style={styles.meanText}>
-											Moyenne :{" "}
-											{getSectionAverage(semesters[selectedSemester].saes) ||
-												"~"}
-										</Text>
-									</View>
-									<View style={styles.classes}>
-										{semesters[selectedSemester].saes.map((resource, i) => (
-											<View key={i} style={styles.class}>
-												<View
-													style={[
-														styles.classHeader,
-														{ backgroundColor: getTheme().pink },
-													]}
-												>
-													<Text style={styles.average}>
-														{resource.evaluations.length
-															? getAverage(resource).toLocaleString("fr-FR", {
-																	maximumFractionDigits: 2,
-																	minimumFractionDigits: 2,
-															  })
-															: "~"}
-													</Text>
-													<Text style={styles.resourceTitle}>
-														{resource.title}
-													</Text>
-												</View>
-												<View style={styles.notes}>
-													{resource.evaluations.length === 0 && (
-														<Text style={styles.noteContent}>
-															Aucune note pour cette matière
-														</Text>
-													)}
-													{resource.evaluations.map((evaluation, j) => (
-														<Pressable
-															onPress={() => setSelectedNote(evaluation)}
-															key={j}
-															style={[
-																styles.note,
-																{
-																	borderBottomWidth:
-																		evaluation.date &&
-																		moment(evaluation.date).isSame(
-																			moment(),
-																			"day"
-																		)
-																			? 2
-																			: 0,
-																},
-															]}
-														>
-															<Text
-																style={[
-																	styles.noteContent,
-																	{
-																		fontFamily:
-																			evaluation.note < 10
-																				? "Rubik-Bold"
-																				: "Rubik-Regular",
-																	},
-																]}
-															>
-																{evaluation.note.toLocaleString("fr-FR", {
-																	maximumFractionDigits: 2,
-																	minimumFractionDigits: 0,
-																})}
-															</Text>
-															{evaluation.coefficient !== 1 && (
-																<Text style={styles.coef}>
-																	({evaluation.coefficient})
-																</Text>
-															)}
-														</Pressable>
-													))}
-												</View>
-											</View>
-										))}
-									</View>
-								</ScrollView>
-							</React.Fragment>
-						)}
-					</View>
+								</PageModal>
+							</View>
+						</View>
+					)}
 				</ScrollView>
 			</GestureHandlerRootView>
 		</EventProvider>
@@ -1230,7 +1705,6 @@ export default function App() {
 const styles = StyleSheet.create({
 	container: {
 		flex: 1,
-		backgroundColor: getTheme().primary,
 	},
 	page: {
 		flex: 1,
@@ -1290,14 +1764,16 @@ const styles = StyleSheet.create({
 	head: {
 		alignItems: "center",
 		flexDirection: "row",
-		paddingTop: StatusBarRN.currentHeight! - 10,
-		paddingHorizontal: 10,
+		paddingTop: StatusBarRN.currentHeight!,
+		paddingHorizontal: 15,
+		paddingBottom: 5,
 		backgroundColor: getTheme().accent,
-		gap: 10,
+		gap: 15,
 	},
 	appIcon: {
-		width: 78,
-		height: 78,
+		width: 50,
+		height: 32,
+		marginBottom: 8,
 	},
 	headText: {
 		justifyContent: "center",
@@ -1305,7 +1781,7 @@ const styles = StyleSheet.create({
 	},
 	appTitle: {
 		color: getTheme().white,
-		fontSize: 24,
+		fontSize: 22,
 		fontFamily: "Rubik-ExtraBold",
 		lineHeight: 28,
 	},
@@ -1592,7 +2068,7 @@ const styles = StyleSheet.create({
 		alignItems: "center",
 		paddingHorizontal: 15,
 		gap: 10,
-		marginVertical: 5,
+		marginVertical: 8,
 	},
 	settingItemTitle: {
 		fontFamily: "Rubik-Regular",
@@ -1605,7 +2081,8 @@ const styles = StyleSheet.create({
 	},
 	settingItemSwitch: {
 		marginLeft: "auto",
-		marginTop: -16,
+		marginTop: -15,
+		marginBottom: -15,
 	},
 	settingCategoryTitle: {
 		fontFamily: "Rubik-Bold",
@@ -1735,5 +2212,128 @@ const styles = StyleSheet.create({
 		color: getTheme().lightGray,
 		fontSize: 12,
 		marginTop: 2,
+	},
+	graphLoader: {
+		marginTop: 40,
+	},
+	settingItemValue: {
+		fontFamily: "Rubik-Regular",
+		fontSize: 14,
+		color: getTheme().lightGray,
+		marginLeft: "auto",
+	},
+	messageAvatar: {
+		width: 40,
+		height: 40,
+		borderRadius: 20,
+	},
+	messageUsername: {
+		fontFamily: "Rubik-Bold",
+		color: getTheme().header,
+	},
+	message: {
+		flexDirection: "row",
+		gap: 20,
+	},
+	attachmentImage: {
+		width: "100%",
+		height: 200,
+		borderRadius: 10,
+	},
+	attachments: {
+		padding: 15,
+		gap: 15,
+	},
+	messageContent: {
+		fontFamily: "Rubik-Regular",
+		fontSize: 15,
+		lineHeight: 24,
+		color: getTheme().header,
+	},
+	messageContainer: {
+		padding: 15,
+	},
+	messageDate: {
+		fontFamily: "Rubik-Regular",
+		fontSize: 12,
+		color: getTheme().gray,
+		textTransform: "capitalize",
+	},
+	messageAuthor: {
+		fontFamily: "Rubik-Bold",
+		fontSize: 16,
+		color: getTheme().header,
+	},
+	authorAvatar: {
+		height: 40,
+		width: 40,
+		borderRadius: 20,
+	},
+	messageHead: {
+		flexDirection: "row",
+		gap: 15,
+		alignItems: "center",
+	},
+	messagePreview: {
+		fontFamily: "Rubik-Regular",
+		fontSize: 12,
+		color: getTheme().gray,
+		flex: 1,
+		lineHeight: 20,
+	},
+	messageTimestamp: {
+		fontFamily: "Rubik-Regular",
+		fontSize: 10,
+		color: getTheme().lightGray,
+	},
+	messageElement: {
+		flex: 1,
+	},
+	messageButton: {
+		gap: 15,
+		padding: 20,
+		borderTopColor: getTheme().borderColor,
+		flexDirection: "row",
+	},
+	linkStyle: {
+		color: getTheme().blue,
+	},
+	messagesContainer: {
+		flex: 1,
+	},
+	messageElementHead: {
+		flexDirection: "row",
+		gap: 5,
+		alignItems: "center",
+	},
+	attachmentFile: {
+		flexDirection: "row",
+		alignItems: "center",
+		backgroundColor: getTheme().planningColor,
+		padding: 15,
+		gap: 10,
+		borderRadius: 10,
+		borderWidth: 1,
+		borderColor: getTheme().borderColor,
+	},
+	attachmentInfo: {
+		flex: 1,
+		gap: 2,
+	},
+	attachmentFilename: {
+		fontFamily: "Rubik-Regular",
+		color: getTheme().darkGray,
+		flex: 1,
+	},
+	attachmentSize: {
+		fontFamily: "Rubik-Regular",
+		color: getTheme().lightGray,
+		fontSize: 12,
+	},
+	attachmentIcon: {
+		width: 30,
+		height: 30,
+		justifyContent: "center",
+		alignItems: "center",
 	},
 });

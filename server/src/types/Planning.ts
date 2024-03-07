@@ -5,15 +5,23 @@ export enum Campus {
 	Fontainebleau = "fbl",
 }
 
+export enum Sector {
+	Info = "info",
+	Tc = "tc",
+	Mmi = "mmi",
+}
+
 type Promo = {
 	name: string;
 	year: number;
 	campus: Campus;
 	group: number;
+	notificationChannel: string;
 	planningIds: string[];
 };
 
 type PlanningEvent = {
+	uid: string;
 	start: string;
 	end: string;
 	summary: string;

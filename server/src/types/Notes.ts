@@ -44,6 +44,7 @@ type RawSemester = {
 };
 
 type Evaluation = {
+	id: number;
 	title: string;
 	coefficient: number;
 	note: number;

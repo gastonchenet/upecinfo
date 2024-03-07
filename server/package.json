@@ -6,6 +6,7 @@
 		"express": "^4.18.2",
 		"ip": "^1.1.8",
 		"moment": "^2.30.1",
+		"mongoose": "^8.2.1",
 		"puppeteer": "^22.0.0"
 	},
 	"devDependencies": {
@@ -17,6 +18,6 @@
 	"scripts": {
 		"dev": "nodemon dist/app.js"
 	},
-	"version": "1.1.1",
+	"version": "1.1.4",
 	"name": "infoupec-server"
 }

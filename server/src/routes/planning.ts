@@ -1,141 +1,71 @@
 import { Router } from "express";
-import type { Campus, Planning, PlanningEvent } from "../types/Planning";
+import {
+	Sector as SectorType,
+	type Campus,
+	type Planning,
+	type PlanningEvent,
+} from "../types/Planning";
 import moment from "moment";
 import "moment/locale/fr";
-import packageContent from "../../package.json";
-import {
-	PLANNING_URL,
-	BUT_1_SEN,
-	BUT_1_FBL_1,
-	BUT_1_FBL_2,
-	BUT_1_FBL_3,
-	BUT_1_FBL_4,
-	BUT_1_FBL_5,
-	BUT_1_FBL_6,
-	BUT_2_FBL_FI_1,
-	BUT_2_FBL_FI_2,
-	BUT_2_FBL_FI_3,
-	BUT_2_FBL_FI_4,
-	BUT_2_FBL_FA,
-	BUT_3,
-} from "../constants/Planning";
+import PromosInfo from "../constants/Planning/Info";
+import PromosTc from "../constants/Planning/Tc";
+import PromosMmi from "../constants/Planning/Mmi";
+import Sector from "../models/Sector";
+import fetchPlanning from "../utils/fetchPlanning";
 
-const Promos = Object.freeze([
-	BUT_1_SEN,
-	BUT_1_FBL_1,
-	BUT_1_FBL_2,
-	BUT_1_FBL_3,
-	BUT_1_FBL_4,
-	BUT_1_FBL_5,
-	BUT_1_FBL_6,
-	BUT_2_FBL_FI_1,
-	BUT_2_FBL_FI_2,
-	BUT_2_FBL_FI_3,
-	BUT_2_FBL_FI_4,
-	BUT_2_FBL_FA,
-	BUT_3,
-]);
+const Promos = Object.freeze({
+	[SectorType.Info]: PromosInfo,
+	[SectorType.Tc]: PromosTc,
+	[SectorType.Mmi]: PromosMmi,
+});
 
 moment.locale("fr");
 
 const router = Router();
-const dayMap: Map<string, Planning> = new Map();
 
-function getItemValue(raw: string) {
-	return raw.split(":")[1];
-}
+async function getSector(sectorId: string) {
+	const sector = await Sector.findOne({ sectorId });
 
-async function fetchPlanning(planningId: string) {
-	const url = new URL(PLANNING_URL);
-	url.searchParams.set("data", planningId);
-
-	const res = await fetch(url.toString(), {
-		method: "GET",
-		headers: {
-			Accept: "*/*",
-			"User-Agent": `UpecInfo/${packageContent.version} (com.ducassoulet.upecinfo)`,
-		},
-	});
-
-	let days = dayMap.get(planningId) ?? {};
-	if (!res.ok) return days;
-	const rawData = await res.text();
-	const data: PlanningEvent[] = [];
-
-	days = {};
-
-	rawData.split("BEGIN:VEVENT").forEach((event) => {
-		if (!event.includes("END:VEVENT")) return;
-
-		const lines = event.split("\n");
-		const start = lines.find((line) => line.startsWith("DTSTART:"));
-		const end = lines.find((line) => line.startsWith("DTEND:"));
-		const summary = lines.find((line) => line.startsWith("SUMMARY:"));
-		const location = lines.find((line) => line.startsWith("LOCATION:"));
-		const description = lines.find((line) => line.startsWith("DESCRIPTION:"));
-
-		if (!start || !end || !summary || !location || !description) return;
-
-		const parsedStart = moment(
-			getItemValue(start),
-			"YYYYMMDDTHHmmssZ"
-		).utcOffset("+01:00");
-
-		const parsedEnd = moment(getItemValue(end), "YYYYMMDDTHHmmssZ").utcOffset(
-			"+01:00"
-		);
-
-		const parsedLocation = getItemValue(location)
-			.replace(/\s*\(\d+\)/g, "")
-			.trim();
-
-		const parsedTeacher = getItemValue(description)
-			.split(/(?:\\n)+/)
-			.at(-2);
-
-		if (!parsedTeacher) return;
-
-		data.push({
-			start: parsedStart.toISOString(),
-			end: parsedEnd.toISOString(),
-			summary: getItemValue(summary),
-			location: parsedLocation,
-			teacher: parsedTeacher,
-		});
-	});
-
-	data
-		.sort((a, b) => moment(a.start).valueOf() - moment(b.start).valueOf())
-		.forEach((event) => {
-			const date = moment(event.start).format("YYYY-MM-DD");
-			if (!days[date]) days[date] = [];
-			days[date].push(event);
+	if (!sector) {
+		const newSector = new Sector({
+			sectorId,
+			expoPushTokens: [],
 		});
 
-	dayMap.set(planningId, days);
+		await newSector.save();
 
-	return days;
+		return newSector;
+	}
+
+	return sector;
 }
 
-function getPromo(year: number, campus: Campus, group: number) {
+function getPromo(
+	sector: SectorType,
+	year: number,
+	campus: Campus,
+	group: number
+) {
 	return (
-		Promos.find(
+		Promos[sector].find(
 			(promo) =>
 				promo.year === year && promo.campus === campus && promo.group === group
 		) ?? null
 	);
 }
 
-router.get("/", async (req, res) => {
+router.post("/", async (req, res) => {
 	const planning: Planning = {};
-	const { year, campus, group } = req.query;
+	const { sector, year, campus, group } = req.query;
+	const expoPushToken = req.body.expoPushToken;
 
-	if (!year || !campus || !group)
+	if (!sector || !year || !campus || !group)
 		return res.status(400).json({
 			message: "Invlaid request query parameters.",
 		});
 
 	const promo = getPromo(
+		sector?.toString() as SectorType,
 		parseInt(year?.toString()!),
 		campus?.toString() as Campus,
 		parseInt(group?.toString()!)
@@ -156,6 +86,19 @@ router.get("/", async (req, res) => {
 			planning[date].push(...semester[date]);
 		});
 	});
+
+	if (expoPushToken) {
+		if (await Sector.exists({ expoPushTokens: expoPushToken })) {
+			await Sector.updateOne(
+				{ expoPushTokens: expoPushToken },
+				{ $pull: { expoPushTokens: expoPushToken } }
+			);
+		}
+
+		const sector = await getSector(promo.notificationChannel);
+		sector.expoPushTokens.push(expoPushToken);
+		await sector.save();
+	}
 
 	return res.json(planning);
 });

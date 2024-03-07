@@ -25,6 +25,9 @@ export default {
 		pink: "#f2689b",
 		light: "#dadada",
 		red: "#ed574c",
+		cyan: "#29afa3",
+		cyanSemiTransparent: "#29afa355",
+		cyanTransparent: "#29afa399",
 	},
 	dark: {
 		accent: "#e42535",
@@ -52,5 +55,8 @@ export default {
 		pink: "#f2689b",
 		light: "#242424",
 		red: "#ed574c",
+		cyan: "#29afa3",
+		cyanSemiTransparent: "#29afa355",
+		cyanTransparent: "#29afa399",
 	},
 };
