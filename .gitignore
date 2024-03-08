@@ -36,5 +36,5 @@ yarn-error.*
 # typescript
 *.tsbuildinfo
 
-# data files
-data/
+# google files
+google-services.json
