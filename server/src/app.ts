@@ -8,7 +8,7 @@ import listenForChanges from "./utils/listenForChanges";
 const app = express();
 
 connect();
-// listenForChanges();
+listenForChanges();
 
 app.use(cors());
 app.use(express.json());

@@ -7,7 +7,7 @@ export default async function fetchPlanning(
 	group: number,
 	expoPushToken: string | null
 ): Promise<[true, Planning] | [false, null]> {
-	const url = new URL("https://upec-info.com/planning");
+	const url = new URL("http://192.168.1.80:8080/v1/planning");
 	url.searchParams.append("sector", sector);
 	url.searchParams.append("year", year.toString());
 	url.searchParams.append("campus", campus);

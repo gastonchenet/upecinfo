@@ -1,13 +1,9 @@
 import { Router } from "express";
-import notes from "./notes";
-import planning from "./planning";
-import information from "./information";
+import v1 from "./v1";
 
 const router = Router();
 
-router.get("/", (req, res) => res.sendStatus(200));
-router.use("/notes", notes);
-router.use("/planning", planning);
-router.use("/information", information);
+router.use("/", v1);
+router.use("/v1", v1);
 
 export default router;

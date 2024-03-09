@@ -3,15 +3,14 @@ import {
 	Sector as SectorType,
 	type Campus,
 	type Planning,
-	type PlanningEvent,
-} from "../types/Planning";
+} from "../../types/Planning";
 import moment from "moment";
 import "moment/locale/fr";
-import PromosInfo from "../constants/Planning/Info";
-import PromosTc from "../constants/Planning/Tc";
-import PromosMmi from "../constants/Planning/Mmi";
-import Sector from "../models/Sector";
-import fetchPlanning from "../utils/fetchPlanning";
+import PromosInfo from "../../constants/Planning/Info";
+import PromosTc from "../../constants/Planning/Tc";
+import PromosMmi from "../../constants/Planning/Mmi";
+import Sector from "../../models/Sector";
+import fetchPlanning from "../../utils/fetchPlanning";
 
 const Promos = Object.freeze({
 	[SectorType.Info]: PromosInfo,

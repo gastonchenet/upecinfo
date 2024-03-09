@@ -73,7 +73,7 @@ export default class Client extends Discord.Client {
 		const start = Date.now();
 
 		await mongoose.connect(
-			`mongodb+srv://${process.env.MONGODB_USER}:${process.env.MONGODB_PASSWORD}@cluster.6fdkc6y.mongodb.net/?retryWrites=true&w=majority&appName=Cluster`
+			`mongodb+srv://${process.env.MONGODB_USERNAME}:${process.env.MONGODB_PASSWORD}@${process.env.MONGODB_HOST}.mongodb.net/production?retryWrites=true&w=majority&appName=upecinfo`
 		);
 
 		console.log(`Connected to the database in ${Date.now() - start}ms.`);

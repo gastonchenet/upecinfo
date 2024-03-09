@@ -54,18 +54,17 @@ import ImageVisualizer from "./components/ImageVisualizer";
 import { isDevice } from "expo-device";
 import Constants from "expo-constants";
 import {
-	type Notification,
 	setNotificationHandler,
 	setNotificationChannelAsync,
 	AndroidImportance,
 	getPermissionsAsync,
 	requestPermissionsAsync,
 	getExpoPushTokenAsync,
-	addNotificationReceivedListener,
-	addNotificationResponseReceivedListener,
-	removeNotificationSubscription,
 } from "expo-notifications";
-import Colors from "./constants/Colors";
+import {
+	setExpoPushToken as postExpoPushToken,
+	deleteExpoPushToken,
+} from "./utils/notifications";
 
 enum ColorType {
 	Pastel,
@@ -88,8 +87,8 @@ const MIN_MEAL_DURATION = 30;
 const DEFAULT_PAGE = 1;
 
 const DefaultSettings = Object.freeze({
-	showDayIndicator: true,
 	showMealBounds: true,
+	planningNotificationEnabled: true,
 });
 
 preventAutoHideAsync();
@@ -111,7 +110,7 @@ async function registerForPushNotificationsAsync() {
 			name: "default",
 			importance: AndroidImportance.MAX,
 			vibrationPattern: [0, 250, 250, 250],
-			lightColor: Colors.light.accent,
+			lightColor: getTheme().accent,
 		});
 	}
 
@@ -230,8 +229,6 @@ function getSectionAverage(section: Resource[]) {
 }
 
 export default function App() {
-	const time = moment();
-
 	const [planningData, setPlanningData] = useState<Planning>({});
 	const [selectedDate, setSelectedDate] = useState(moment());
 	const [calendarDeployed, setCalendarDeployed] = useState(false);
@@ -318,14 +315,13 @@ export default function App() {
 
 	async function changePromo(p: Promo & { fetching: boolean }) {
 		setEditingPromo(false);
-		setPromo({ ...promo, sector: promo!.sector });
+		setPromo({ sector: promo!.sector, ...p });
 
 		Object.values(promos)
 			.flat()
 			.forEach((p) => (p.fetching = false));
 
 		p.fetching = true;
-
 		setPromos({ ...promos });
 
 		fetchPlanning(promo!.sector, p.year, p.campus, p.group, expoPushToken).then(
@@ -412,6 +408,31 @@ export default function App() {
 		setDisconnectModalVisible(false);
 	}
 
+	async function toggleNotifications() {
+		if (settings.planningNotificationEnabled) {
+			const success = await deleteExpoPushToken(expoPushToken!);
+			if (!success) return;
+
+			setSettingsValue("planningNotificationEnabled", false);
+		} else {
+			const token =
+				expoPushToken ?? (await registerForPushNotificationsAsync()) ?? null;
+
+			if (!token) return;
+			setExpoPushToken(token);
+
+			if (!promo) return;
+			console.log((promo as Promo).notificationChannel);
+			const success = await postExpoPushToken(
+				(promo as Promo).notificationChannel,
+				token
+			);
+
+			if (!success) return;
+			setSettingsValue("planningNotificationEnabled", true);
+		}
+	}
+
 	function setSettingsValue(key: keyof typeof DefaultSettings, value: boolean) {
 		setSettings({ ...settings, [key]: value });
 		setItemAsync("settings", JSON.stringify({ ...settings, [key]: value }));
@@ -425,35 +446,6 @@ export default function App() {
 	});
 
 	useEffect(() => {
-		registerForPushNotificationsAsync().then((token) => {
-			setExpoPushToken(token ?? null);
-
-			getItemAsync("promo").then((data) => {
-				if (!data) return setEditingPromo(true);
-				const promo: Promo & { sector: Sector } = JSON.parse(data);
-				setPromo(promo);
-
-				fetchPlanning(
-					promo.sector,
-					promo.year,
-					promo.campus,
-					promo.group,
-					token ?? null
-				).then(([success, data]) => {
-					if (success) {
-						setPlanningData(data);
-						const events = data[moment().format("YYYY-MM-DD")] ?? [];
-						setDayEvents(events);
-						setMealEvent(getMealEvent(events));
-					} else {
-						deleteItemAsync("promo");
-						setEditingPromo(true);
-						setPromo(null);
-					}
-				});
-			});
-		});
-
 		fetchPromos().then((data) => {
 			const promos: Promos = {};
 
@@ -487,16 +479,67 @@ export default function App() {
 			});
 		});
 
-		getItemAsync("settings").then((data) => {
+		getItemAsync("settings").then(async (data) => {
 			if (!data) return;
-			setSettings(JSON.parse(data));
+
+			const settings = {
+				...DefaultSettings,
+				...JSON.parse(data),
+			};
+
+			setSettings(settings);
+
+			let token: string | null = null;
+
+			if (settings.planningNotificationEnabled) {
+				token = (await registerForPushNotificationsAsync()) ?? null;
+				setExpoPushToken(token);
+			}
+
+			getItemAsync("promo").then((data) => {
+				if (!data) return setEditingPromo(true);
+				const promo: Promo & { sector: Sector } = JSON.parse(data);
+				setPromo(promo);
+
+				fetchPlanning(
+					promo.sector,
+					promo.year,
+					promo.campus,
+					promo.group,
+					token
+				).then(([success, data]) => {
+					if (success) {
+						setPlanningData(data);
+						const events = data[moment().format("YYYY-MM-DD")] ?? [];
+						setDayEvents(events);
+						setMealEvent(getMealEvent(events));
+					} else {
+						deleteItemAsync("promo");
+						setEditingPromo(true);
+						setPromo(null);
+					}
+				});
+			});
 		});
 
 		getItemAsync("last_checked").then((data) => {
 			if (!data) return;
 			setLastSeen(moment(data));
 		});
-	}, []);
+	}, [
+		setAuth,
+		setSemesters,
+		setSelectedSemester,
+		setPromos,
+		setMessages,
+		setSettings,
+		setExpoPushToken,
+		setPlanningData,
+		setDayEvents,
+		setMealEvent,
+		setPromo,
+		setLastSeen,
+	]);
 
 	const onLayoutRootView = useCallback(async () => {
 		if (fontsLoaded && Object.keys(promos).length > 0) return await hideAsync();
@@ -672,7 +715,10 @@ export default function App() {
 					/>
 					<View style={styles.headText}>
 						<Text style={styles.appTitle}>{app.expo.name}</Text>
-						<Text style={styles.appDescription}>Filière informatique</Text>
+						<Text style={styles.appDescription}>
+							Filière {promo?.sector?.toUpperCase()}
+							{(promo as Promo)?.name ? ` - ${(promo as Promo).name}` : ""}
+						</Text>
 					</View>
 				</View>
 				<ScrollView
@@ -701,169 +747,182 @@ export default function App() {
 						<View style={styles.subHead}>
 							<Text style={styles.subHeadDay}>Paramètres</Text>
 						</View>
-						<View style={styles.settingContainer}>
-							<View style={styles.settingCategoryTitleContainer}>
-								<Image
-									source={require("./assets/images/color-circle.png")}
-									style={styles.settingCategoryTitleIcon}
-								/>
-								<Text style={styles.settingCategoryTitle}>Apparence</Text>
-							</View>
-							<View style={styles.settingItem}>
-								<Text style={styles.settingItemTitle}>Thème Sombre</Text>
-								<Text style={styles.settingItemDescription}>
-									(en développement)
-								</Text>
-								<Switch
-									value={darkTheme}
-									onChange={() => {
-										Appearance.setColorScheme(darkTheme ? "light" : "dark");
-										setDarkTheme(!darkTheme);
-									}}
-									style={styles.settingItemSwitch}
-									thumbColor={
-										darkTheme ? getTheme().accent : getTheme().lightGray
-									}
-									trackColor={{
-										false: getTheme().light,
-										true: getTheme().accentLight,
-									}}
-								/>
-							</View>
-							<View style={styles.settingItem}>
-								<Text style={styles.settingItemTitle}>Indicateur de jour</Text>
-								<Switch
-									value={settings.showDayIndicator}
-									onChange={() =>
-										setSettingsValue(
-											"showDayIndicator",
-											!settings.showDayIndicator
-										)
-									}
-									style={styles.settingItemSwitch}
-									thumbColor={
-										settings.showDayIndicator
-											? getTheme().accent
-											: getTheme().lightGray
-									}
-									trackColor={{
-										false: getTheme().light,
-										true: getTheme().accentLight,
-									}}
-								/>
-							</View>
-							<View style={styles.settingItem}>
-								<Text style={styles.settingItemTitle}>Pause déjeuner</Text>
-								<Switch
-									value={settings.showMealBounds}
-									onChange={() =>
-										setSettingsValue("showMealBounds", !settings.showMealBounds)
-									}
-									style={styles.settingItemSwitch}
-									thumbColor={
-										settings.showMealBounds
-											? getTheme().accent
-											: getTheme().lightGray
-									}
-									trackColor={{
-										false: getTheme().light,
-										true: getTheme().accentLight,
-									}}
-								/>
-							</View>
-						</View>
-						<View style={styles.settingContainer}>
-							<View style={styles.settingCategoryTitleContainer}>
-								<Image
-									source={require("./assets/images/link.png")}
-									style={styles.settingCategoryTitleIcon}
-								/>
-								<Text style={styles.settingCategoryTitle}>Connexion</Text>
-							</View>
-							<View style={styles.settingItem}>
-								<Pressable
-									style={styles.settingButton}
-									onPress={() => changePlanning()}
-								>
-									<MaterialIcons
-										name="edit-calendar"
-										size={18}
-										color={getTheme().header}
+						<ScrollView>
+							<View style={styles.settingContainer}>
+								<View style={styles.settingCategoryTitleContainer}>
+									<Image
+										source={require("./assets/images/color-circle.png")}
+										style={styles.settingCategoryTitleIcon}
 									/>
-									<Text style={styles.settingButtonText}>
-										Changer de promotion
+									<Text style={styles.settingCategoryTitle}>Apparence</Text>
+								</View>
+								<View style={styles.settingItem}>
+									<Text style={styles.settingItemTitle}>Thème Sombre</Text>
+									<Text style={styles.settingItemDescription}>
+										(en développement)
 									</Text>
-								</Pressable>
-							</View>
-							<View style={styles.settingItem}>
-								<Pressable
-									style={styles.settingButton}
-									onPress={() => setDisconnectModalVisible(true)}
-								>
-									<MaterialIcons
-										name="logout"
-										size={18}
-										color={getTheme().red}
+									<Switch
+										value={darkTheme}
+										onChange={() => {
+											Appearance.setColorScheme(darkTheme ? "light" : "dark");
+											setDarkTheme(!darkTheme);
+										}}
+										style={styles.settingItemSwitch}
+										thumbColor={
+											darkTheme ? getTheme().accent : getTheme().lightGray
+										}
+										trackColor={{
+											false: getTheme().light,
+											true: getTheme().accentLight,
+										}}
 									/>
-									<Text style={styles.settingButtonTextDanger}>
-										Déconnexion
+								</View>
+								<View style={styles.settingItem}>
+									<Text style={styles.settingItemTitle}>Pause déjeuner</Text>
+									<Switch
+										value={settings.showMealBounds}
+										onChange={() =>
+											setSettingsValue(
+												"showMealBounds",
+												!settings.showMealBounds
+											)
+										}
+										style={styles.settingItemSwitch}
+										thumbColor={
+											settings.showMealBounds
+												? getTheme().accent
+												: getTheme().lightGray
+										}
+										trackColor={{
+											false: getTheme().light,
+											true: getTheme().accentLight,
+										}}
+									/>
+								</View>
+							</View>
+							<View style={styles.settingContainer}>
+								<View style={styles.settingCategoryTitleContainer}>
+									<Image
+										source={require("./assets/images/notification.png")}
+										style={styles.settingCategoryTitleIcon}
+									/>
+									<Text style={styles.settingCategoryTitle}>Notifications</Text>
+								</View>
+								<View style={styles.settingItem}>
+									<Text style={styles.settingItemTitle}>
+										Modifications du planning
 									</Text>
-								</Pressable>
+									<Switch
+										value={settings.planningNotificationEnabled}
+										onChange={toggleNotifications}
+										style={styles.settingItemSwitch}
+										thumbColor={
+											settings.planningNotificationEnabled
+												? getTheme().accent
+												: getTheme().lightGray
+										}
+										trackColor={{
+											false: getTheme().light,
+											true: getTheme().accentLight,
+										}}
+									/>
+								</View>
 							</View>
-						</View>
-						<View style={styles.settingContainer}>
-							<View style={styles.settingCategoryTitleContainer}>
-								<Image
-									source={require("./assets/images/information.png")}
-									style={styles.settingCategoryTitleIcon}
-								/>
-								<Text style={styles.settingCategoryTitle}>Informations</Text>
+							<View style={styles.settingContainer}>
+								<View style={styles.settingCategoryTitleContainer}>
+									<Image
+										source={require("./assets/images/link.png")}
+										style={styles.settingCategoryTitleIcon}
+									/>
+									<Text style={styles.settingCategoryTitle}>Connexion</Text>
+								</View>
+								<View style={styles.settingItem}>
+									<Pressable
+										style={styles.settingButton}
+										onPress={() => changePlanning()}
+									>
+										<MaterialIcons
+											name="edit-calendar"
+											size={18}
+											color={getTheme().header}
+										/>
+										<Text style={styles.settingButtonText}>
+											Changer de promotion
+										</Text>
+									</Pressable>
+								</View>
+								<View style={styles.settingItem}>
+									<Pressable
+										style={styles.settingButton}
+										onPress={() => setDisconnectModalVisible(true)}
+									>
+										<MaterialIcons
+											name="logout"
+											size={18}
+											color={getTheme().red}
+										/>
+										<Text style={styles.settingButtonTextDanger}>
+											Déconnexion
+										</Text>
+									</Pressable>
+								</View>
 							</View>
-							<View style={styles.settingItem}>
-								<Text style={styles.settingItemTitle}>
-									Version de l'application
-								</Text>
-								<Text style={styles.settingItemValue}>@{app.expo.version}</Text>
+							<View style={styles.settingContainer}>
+								<View style={styles.settingCategoryTitleContainer}>
+									<Image
+										source={require("./assets/images/information.png")}
+										style={styles.settingCategoryTitleIcon}
+									/>
+									<Text style={styles.settingCategoryTitle}>Informations</Text>
+								</View>
+								<View style={styles.settingItem}>
+									<Text style={styles.settingItemTitle}>
+										Version de l'application
+									</Text>
+									<Text style={styles.settingItemValue}>
+										@{app.expo.version}
+									</Text>
+								</View>
+								<View style={styles.settingItem}>
+									<Text style={styles.settingItemTitle}>Développeur</Text>
+									<Text style={styles.settingItemValue}>Du Cassoulet</Text>
+								</View>
+								<View style={styles.settingItem}>
+									<Text style={styles.settingItemTitle}>
+										Administrateur réseau
+									</Text>
+									<Text style={styles.settingItemValue}>WonderHunter</Text>
+								</View>
+								<View style={styles.settingItem}>
+									<Text style={styles.settingItemTitle}>Licence</Text>
+									<Text style={styles.settingItemValue}>MIT</Text>
+								</View>
+								<View style={styles.settingItem}>
+									<Text style={styles.settingItemTitle}>Code source</Text>
+									<Text
+										style={styles.settingItemValue}
+										onPress={() =>
+											Linking.openURL(
+												"https://github.com/du-cassoulet/planning-app/tree/master/app"
+											)
+										}
+									>
+										du-cassoulet/planning-app
+									</Text>
+								</View>
+								<View style={styles.settingItem}>
+									<Text style={styles.settingItemTitle}>Contact</Text>
+									<Text
+										style={styles.settingItemValue}
+										onPress={() =>
+											Linking.openURL("mailto:gaston.chenet@etu.u-pec.fr")
+										}
+									>
+										gaston.chenet@etu.u-pec.fr
+									</Text>
+								</View>
 							</View>
-							<View style={styles.settingItem}>
-								<Text style={styles.settingItemTitle}>Développeur</Text>
-								<Text style={styles.settingItemValue}>Du Cassoulet</Text>
-							</View>
-							<View style={styles.settingItem}>
-								<Text style={styles.settingItemTitle}>
-									Administrateur réseau
-								</Text>
-								<Text style={styles.settingItemValue}>WonderHunter</Text>
-							</View>
-							<View style={styles.settingItem}>
-								<Text style={styles.settingItemTitle}>Licence</Text>
-								<Text style={styles.settingItemValue}>MIT</Text>
-							</View>
-							<View style={styles.settingItem}>
-								<Text style={styles.settingItemTitle}>Code source</Text>
-								<Text
-									style={styles.settingItemValue}
-									onPress={() =>
-										Linking.openURL(
-											"https://github.com/du-cassoulet/planning-app/tree/master/app"
-										)
-									}
-								>
-									du-cassoulet/planning-app
-								</Text>
-							</View>
-							<View style={styles.settingItem}>
-								<Text style={styles.settingItemTitle}>Contact</Text>
-								<Text
-									style={styles.settingItemValue}
-									onPress={() =>
-										Linking.openURL("mailto:gaston.chenet@etu.u-pec.fr")
-									}
-								>
-									gaston.chenet@etu.u-pec.fr
-								</Text>
-							</View>
-						</View>
+						</ScrollView>
 					</View>
 					<View style={styles.page}>
 						<View style={styles.subHead}>
@@ -1052,35 +1111,6 @@ export default function App() {
 										<Text style={styles.mealTimeText}>Pause déjeuner</Text>
 									</View>
 								)}
-								{settings.showDayIndicator &&
-									time.isSame(selectedDate, "day") && (
-										<React.Fragment>
-											<View
-												style={[
-													styles.dayProgressionLine,
-													{
-														top:
-															(moment().diff(time.startOf("day"), "seconds") /
-																60000 -
-																PLANNING_START) *
-															100,
-													},
-												]}
-											/>
-											<View
-												style={[
-													styles.dayProgressionDot,
-													{
-														top:
-															(moment().diff(time.startOf("day"), "seconds") /
-																60000 -
-																PLANNING_START) *
-															100,
-													},
-												]}
-											/>
-										</React.Fragment>
-									)}
 							</View>
 						</ScrollView>
 					</View>

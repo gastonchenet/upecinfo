@@ -1,17 +1,17 @@
 import { Router } from "express";
 import puppeteer, { type HTTPRequest, type HTTPResponse } from "puppeteer";
-import type { RawSemester, Semester } from "../types/Notes";
+import type { RawSemester, Semester } from "../../types/Notes";
 import moment from "moment";
 import "moment/locale/fr";
 import { createHash } from "crypto";
-import { UPDATE_INTERVAL } from "../constants/Notes";
+import { UPDATE_INTERVAL } from "../../constants/Notes";
 import {
 	ARGS,
 	EXECUTABLEPATH,
 	HEADLESS,
 	USERAGENT,
-} from "../constants/Puppeteer";
-import Distribution from "../models/Distribution";
+} from "../../constants/Puppeteer";
+import Distribution from "../../models/Distribution";
 
 const router = Router();
 
@@ -134,6 +134,8 @@ router.get("/", async (req, res) => {
 				if (query === "relevéEtudiant") {
 					const data = await response.json();
 
+					console.log(data);
+
 					semesters.push({
 						num: data["relevé"].semestre.numero,
 						startDate: data["relevé"].semestre.date_debut,
@@ -160,7 +162,7 @@ router.get("/", async (req, res) => {
 						);
 
 						if (!users.has(userHash)) users.add(userHash);
-						userSemesters.set(userHash, parsedSemesters);
+						// userSemesters.set(userHash, parsedSemesters);
 						lastUpdate = moment();
 
 						return res.json(parsedSemesters);
@@ -204,7 +206,6 @@ router.get("/:noteId/distribution", async (req, res) => {
 	}
 
 	const evalId = parseInt(req.params.noteId);
-
 	const userHash = hashUser(username.toString(), password.toString());
 
 	if (users.has(userHash)) {

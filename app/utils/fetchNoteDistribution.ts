@@ -5,7 +5,10 @@ export default async function fetchNoteDistribution(
 	username: string,
 	password: string
 ): Promise<[true, Distribution] | [false, null]> {
-	const url = new URL(`https://upec-info.com/notes/${evalId}/distribution`);
+	const url = new URL(
+		`http://192.168.1.80:8080/v1/notes/${evalId}/distribution`
+	);
+
 	url.searchParams.append("username", username);
 	url.searchParams.append("password", password);
 

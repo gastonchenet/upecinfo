@@ -38,3 +38,6 @@ yarn-error.*
 
 # google files
 google-services.json
+
+# admin files
+admin/

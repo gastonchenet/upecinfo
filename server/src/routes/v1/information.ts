@@ -1,17 +1,17 @@
 import axios from "axios";
 import { Router } from "express";
-import { Message, RawMessage } from "../types/Message";
+import { Message, RawMessage } from "../../types/Message";
 import moment from "moment";
 import {
 	UPDATE_INTERVAL,
 	GROUP_MESSAGE_MINUTES,
-} from "../constants/Information";
+} from "../../constants/Information";
 
 const UsernameMap: { [key: string]: string } = {
 	"florent.madelaine": "Florent Madelaine",
 	denismonnerat: "Denis Monnerat",
 	rebr45: "Régis Brouard",
-	"Patricia Crouan-Véron": "Patricia Crouan-Véron",
+	patriciacrouanveron: "Patricia Crouan-Véron",
 	largesandrine: "Sandra Largé",
 	"selma.iutsf": "Selma Naboulsi",
 	fbgervais78: "Frédéric Gervais",
