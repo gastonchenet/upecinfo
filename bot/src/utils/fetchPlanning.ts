@@ -11,7 +11,9 @@ export default async function fetchPlanning(
 	url.searchParams.append("group", promo.group.toString());
 
 	try {
-		const { data } = await axios.get(url.toString());
+		const { data } = await axios.post(url.toString(), {
+			expoPushToken: null,
+		});
 
 		return {
 			planning: data,

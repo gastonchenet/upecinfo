@@ -2,7 +2,7 @@
 	"expo": {
 		"name": "Info UPEC",
 		"slug": "infoupec",
-		"version": "1.5.0",
+		"version": "1.5.1",
 		"orientation": "portrait",
 		"icon": "./assets/images/icon.png",
 		"userInterfaceStyle": "dark",
@@ -15,7 +15,7 @@
 		"ios": {
 			"supportsTablet": true,
 			"bundleIdentifier": "com.ducassoulet.infoupec",
-			"buildNumber": "1.5.0"
+			"buildNumber": "1.5.1"
 		},
 		"android": {
 			"adaptiveIcon": {
@@ -23,7 +23,7 @@
 				"backgroundColor": "#e42535"
 			},
 			"package": "com.du_cassoulet.infoupec",
-			"versionCode": 15,
+			"versionCode": 16,
 			"googleServicesFile": "./google-services.json"
 		},
 		"web": {
