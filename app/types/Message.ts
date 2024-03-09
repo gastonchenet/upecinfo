@@ -66,12 +66,21 @@ type Attachment = {
 	size: number;
 };
 
+type Embed = {
+	title: string | null;
+	description: string | null;
+	image: string | null;
+	themeColor: string | null;
+	url: string;
+};
+
 type Message = {
 	content: string;
 	timestamp: string;
 	author_username: string;
 	author_avatar: string | null;
 	attachments: Attachment[];
+	embeds: Embed[];
 };
 
 export type {

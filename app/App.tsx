@@ -459,9 +459,7 @@ export default function App() {
 			setPromos(promos);
 		});
 
-		fetchMessages().then((data) => {
-			setMessages(data);
-		});
+		fetchMessages().then((data) => setMessages(data));
 
 		getItemAsync("auth").then((data) => {
 			if (!data) return;
@@ -716,7 +714,7 @@ export default function App() {
 					<View style={styles.headText}>
 						<Text style={styles.appTitle}>{app.expo.name}</Text>
 						<Text style={styles.appDescription}>
-							Filière {promo?.sector?.toUpperCase()}
+							{promo?.sector ? "Filière " + promo?.sector?.toUpperCase() : ""}
 							{(promo as Promo)?.name ? ` - ${(promo as Promo).name}` : ""}
 						</Text>
 					</View>
@@ -1537,7 +1535,7 @@ export default function App() {
 											duration={500}
 											rippleColor={
 												Appearance.getColorScheme() === "dark"
-													? "#fff3"
+													? "#fff1"
 													: "#0001"
 											}
 											onPress={() => selectMessage(message)}
@@ -1572,7 +1570,9 @@ export default function App() {
 														numberOfLines={3}
 														ellipsizeMode="tail"
 													>
-														{message.content.replace(/\n/g, " ")}
+														{message.content
+															.replace(/\n|={3,}/g, " ")
+															.replace(/\s+/g, " ")}
 													</Text>
 												)}
 												{message.attachments.length > 0 && (
@@ -1634,17 +1634,66 @@ export default function App() {
 										</View>
 									}
 								>
-									{selectedMessage && (
-										<Hyperlink
-											linkStyle={styles.linkStyle}
-											linkDefault
-											style={styles.messageContainer}
-										>
-											<Text style={styles.messageContent}>
-												{selectedMessage?.content}
-											</Text>
-										</Hyperlink>
-									)}
+									{selectedMessage?.content
+										?.split(/={3,}/g)
+										.map((content, index) => (
+											<Hyperlink
+												linkStyle={styles.linkStyle}
+												linkDefault
+												style={[
+													styles.messageContainer,
+													{
+														borderTopWidth: index === 0 ? 0 : 1,
+													},
+												]}
+												key={index}
+											>
+												<Text style={styles.messageContent}>
+													{content.trim()}
+												</Text>
+											</Hyperlink>
+										))}
+									<View style={styles.embeds}>
+										{selectedMessage?.embeds.map((embed, i) => (
+											<RipplePressable
+												key={i}
+												onPress={() => Linking.openURL(embed.url)}
+												style={[
+													styles.embed,
+													{
+														borderLeftColor:
+															embed.themeColor || getTheme().accent,
+													},
+												]}
+												duration={500}
+												rippleColor={
+													Appearance.getColorScheme() === "dark"
+														? "#fff1"
+														: "#0001"
+												}
+											>
+												{embed.image && (
+													<Image
+														source={{ uri: embed.image }}
+														style={styles.embedThumbnail}
+														resizeMode="cover"
+													/>
+												)}
+												<View style={styles.embedInfo}>
+													<Text style={styles.embedTitle}>{embed.title}</Text>
+													<Text
+														style={styles.embedDescription}
+														numberOfLines={3}
+														ellipsizeMode="tail"
+													>
+														{!embed.description || embed.description === ""
+															? "Aucune description"
+															: embed.description}
+													</Text>
+												</View>
+											</RipplePressable>
+										))}
+									</View>
 									<View style={styles.attachments}>
 										{selectedMessage?.attachments.map((attachment, i) =>
 											attachment.type.startsWith("image/") ? (
@@ -2274,6 +2323,34 @@ const styles = StyleSheet.create({
 		padding: 15,
 		gap: 15,
 	},
+	embeds: {
+		padding: 15,
+		gap: 15,
+	},
+	embed: {
+		flexDirection: "row",
+		gap: 15,
+		backgroundColor: getTheme().planningColor,
+		padding: 15,
+		borderRadius: 10,
+		borderLeftWidth: 5,
+	},
+	embedThumbnail: {
+		width: 100,
+		height: 100,
+		borderRadius: 10,
+	},
+	embedInfo: {
+		flex: 1,
+	},
+	embedTitle: {
+		fontFamily: "Rubik-Bold",
+		color: getTheme().blue,
+	},
+	embedDescription: {
+		fontFamily: "Rubik-Regular",
+		color: getTheme().gray,
+	},
 	messageContent: {
 		fontFamily: "Rubik-Regular",
 		fontSize: 15,
@@ -2281,7 +2358,9 @@ const styles = StyleSheet.create({
 		color: getTheme().header,
 	},
 	messageContainer: {
-		padding: 15,
+		marginHorizontal: 15,
+		paddingVertical: 25,
+		borderTopColor: getTheme().borderColor,
 	},
 	messageDate: {
 		fontFamily: "Rubik-Regular",

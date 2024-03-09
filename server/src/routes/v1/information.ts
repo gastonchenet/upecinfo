@@ -6,6 +6,7 @@ import {
 	UPDATE_INTERVAL,
 	GROUP_MESSAGE_MINUTES,
 } from "../../constants/Information";
+import { decode } from "html-entities";
 
 const UsernameMap: { [key: string]: string } = {
 	"florent.madelaine": "Florent Madelaine",
@@ -66,6 +67,53 @@ function groupMessages(messages: Message[]) {
 	return groupedMessages;
 }
 
+async function getMetaTags(url: string) {
+	try {
+		const { data } = await axios.get(url);
+
+		const title: string | null =
+			data.match(/<title[^>]*>([^<]+)<\/title>/)?.[1] ?? null;
+
+		const description: string | null =
+			data.match(
+				/<meta (?:name="|property="og:)description" content="([^"]+)">/
+			)?.[1] ?? null;
+
+		console.log(decode(description));
+
+		const image: string | null =
+			data.match(/<meta property="og:image" content="([^"]+)">/)?.[1] ?? null;
+
+		const themeColor: string | null =
+			data.match(/<meta name="theme-color" content="([^"]+)">/)?.[1] ?? null;
+
+		return {
+			title: decode(title),
+			description: decode(description),
+			image,
+			themeColor,
+			url,
+		};
+	} catch {
+		return {
+			title: null,
+			description: null,
+			image: null,
+			themeColor: null,
+			url,
+		};
+	}
+}
+
+async function urlEmbeds(messageContent: string) {
+	const urls = messageContent.match(/https?:\/\/[^\s]+/g);
+	if (!urls) return [];
+
+	const embeds = await Promise.all(urls.map((url) => getMetaTags(url)));
+
+	return embeds.filter((embed) => embed.title);
+}
+
 router.get("/", async (req, res) => {
 	if (moment().diff(lastUpdate) < UPDATE_INTERVAL) {
 		return res.json(messages);
@@ -74,23 +122,28 @@ router.get("/", async (req, res) => {
 	const rawMessages = await fetchChannelMessages();
 
 	messages = groupMessages(
-		rawMessages.map((message: RawMessage) => ({
-			content: message.content.replace(/[_*]{1,2}|`(?:`{2})?/g, ""),
-			timestamp: moment(message.timestamp).toISOString(),
-			author_username:
-				UsernameMap[message.author.username] ?? message.author.username,
-			author_avatar: message.author.avatar
-				? `https://cdn.discordapp.com/avatars/${message.author.id}/${message.author.avatar}.png`
-				: null,
-			attachments: message.attachments.map((attachment) => ({
-				filename: attachment.filename,
-				url: attachment.url,
-				height: attachment.height,
-				width: attachment.width,
-				type: attachment.content_type,
-				size: attachment.size,
-			})),
-		}))
+		await Promise.all(
+			rawMessages
+				.filter((m) => (m.content?.length ?? 0) > 64)
+				.map(async (message: RawMessage) => ({
+					content: message.content.replace(/[_*]{1,2}|`(?:`{2})?/g, ""),
+					timestamp: moment(message.timestamp).toISOString(),
+					author_username:
+						UsernameMap[message.author.username] ?? message.author.username,
+					author_avatar: message.author.avatar
+						? `https://cdn.discordapp.com/avatars/${message.author.id}/${message.author.avatar}.png`
+						: null,
+					attachments: message.attachments.map((attachment) => ({
+						filename: attachment.filename,
+						url: attachment.url,
+						height: attachment.height,
+						width: attachment.width,
+						type: attachment.content_type,
+						size: attachment.size,
+					})),
+					embeds: await urlEmbeds(message.content),
+				}))
+		)
 	);
 
 	lastUpdate = moment();
