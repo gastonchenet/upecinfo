@@ -27,8 +27,8 @@ export default function getMealEvent(dayEvents: PlanningEvent[]) {
 		)
 		.sort(
 			(a, b) =>
-				Math.abs(a.duration - IDEAL_MEAL_TIME) -
-				Math.abs(b.duration - IDEAL_MEAL_TIME)
+				Math.abs((a.start.hour() + a.end.hour()) / 2 - IDEAL_MEAL_TIME) -
+				Math.abs((b.start.hour() + b.end.hour()) / 2 - IDEAL_MEAL_TIME)
 		)
 		.sort((a, b) => b.duration - a.duration);
 

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import {
 	StyleSheet,
 	View,
@@ -12,7 +12,11 @@ import moment, { Moment } from "moment";
 import "moment/locale/fr";
 import getTheme from "../utils/getTheme";
 import RipplePressable from "../components/RipplePressable";
-import { MealEvent, PlanningEvent } from "../types/Planning";
+import {
+	MealEvent,
+	Planning as PlanningType,
+	PlanningEvent,
+} from "../types/Planning";
 import Calendar from "../components/Calendar";
 import getMealEvent from "../utils/getMealEvent";
 import HourIndicator from "../components/HourIndicator";
@@ -26,7 +30,7 @@ enum ColorType {
 type PlanningProps = {
 	calendarDeployed: boolean;
 	setCalendarDeployed: (deployed: boolean) => void;
-	planningData: Record<string, PlanningEvent[]>;
+	planningData: PlanningType;
 	settings: typeof DefaultSettings;
 	dayEvents: PlanningEvent[];
 	setDayEvents: (events: PlanningEvent[]) => void;
@@ -55,6 +59,16 @@ function stringToColor(str: string, type: ColorType, variation: number = 1) {
 function getDayBounds(dayEvents: PlanningEvent[]) {
 	if (dayEvents.length === 0) return [];
 	return [dayEvents[0].start, dayEvents.at(-1)!.end];
+}
+
+function nextClassDay(planningData: PlanningType, date: Moment) {
+	let nextDay = date.clone().add(1, "day");
+
+	while (!planningData[nextDay.format("YYYY-MM-DD")]) {
+		nextDay.add(1, "day");
+	}
+
+	return nextDay;
 }
 
 export default function Planning({
@@ -256,6 +270,33 @@ export default function Planning({
 					)}
 				</View>
 			</ScrollView>
+			{dayEvents.length === 0 && (
+				<View style={styles.noClassContainer}>
+					<Text style={styles.noClassTitle}>Aucun cours prévu</Text>
+					<Text style={styles.noClassDescription}>
+						La prochaine journée de cours est prévue pour le{" "}
+						{nextClassDay(planningData, selectedDate).format("dddd DD MMMM")},{" "}
+						dans{" "}
+						{nextClassDay(planningData, selectedDate).diff(
+							selectedDate,
+							"days"
+						)}{" "}
+						jours.
+					</Text>
+					<RipplePressable
+						rippleColor="#fff1"
+						duration={500}
+						style={styles.noClassButton}
+						onPress={() => changeDay(nextClassDay(planningData, selectedDate))}
+					>
+						<MaterialIcons name="edit-calendar" size={20} color="white" />
+						<Text style={styles.noClassButtonText}>
+							Aller au{" "}
+							{nextClassDay(planningData, selectedDate).format("dddd DD MMMM")}
+						</Text>
+					</RipplePressable>
+				</View>
+			)}
 		</View>
 	);
 }
@@ -395,5 +436,42 @@ const styles = StyleSheet.create({
 		color: getTheme().gray,
 		transform: [{ translateY: -8 }],
 		fontFamily: "Rubik-Regular",
+	},
+	noClassButton: {
+		backgroundColor: getTheme().blue,
+		padding: 15,
+		borderRadius: 10,
+		flexDirection: "row",
+		alignItems: "center",
+		justifyContent: "center",
+		gap: 10,
+		flex: 0.75,
+		marginTop: 15,
+	},
+	noClassButtonText: {
+		color: getTheme().white,
+		fontFamily: "Rubik-Regular",
+	},
+	noClassDescription: {
+		color: getTheme().gray,
+		fontFamily: "Rubik-Regular",
+		fontSize: 14,
+		marginTop: 5,
+		lineHeight: 22,
+	},
+	noClassTitle: {
+		color: getTheme().header,
+		fontFamily: "Rubik-Bold",
+		fontSize: 18,
+	},
+	noClassContainer: {
+		position: "absolute",
+		bottom: 10,
+		left: 10,
+		width: Dimensions.get("window").width - 20,
+		flex: 1,
+		padding: 15,
+		borderRadius: 10,
+		backgroundColor: getTheme().eventColor,
 	},
 });

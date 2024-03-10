@@ -122,12 +122,12 @@ export default function Information({ setImage }: InformationProps) {
 								)}
 								{message.attachments.length > 0 && (
 									<View
-										style={{
-											flexDirection: "row",
-											gap: 5,
-											alignItems: "center",
-											marginTop: message.content.length > 0 ? 5 : 0,
-										}}
+										style={[
+											styles.attachmentsRow,
+											{
+												marginTop: message.content.length > 0 ? 5 : 0,
+											},
+										]}
 									>
 										<FontAwesome6
 											name="paperclip"
@@ -135,11 +135,7 @@ export default function Information({ setImage }: InformationProps) {
 											color={getTheme().darkGray}
 										/>
 										<Text
-											style={{
-												fontFamily: "Rubik-Regular",
-												color: getTheme().darkGray,
-												fontSize: 12,
-											}}
+											style={styles.attachmentsText}
 											numberOfLines={3}
 											ellipsizeMode="tail"
 										>
@@ -473,5 +469,15 @@ const styles = StyleSheet.create({
 	},
 	linkStyle: {
 		color: getTheme().blue,
+	},
+	attachmentsRow: {
+		flexDirection: "row",
+		gap: 5,
+		alignItems: "center",
+	},
+	attachmentsText: {
+		fontFamily: "Rubik-Regular",
+		color: getTheme().darkGray,
+		fontSize: 12,
 	},
 });
