@@ -65,11 +65,11 @@ export default function Calendar({
 	}
 
 	function addMonth() {
-		setCurrentMonth(currentMonth.add(1, "month").clone());
+		setCurrentMonth(currentMonth.clone().add(1, "month"));
 	}
 
 	function subtractMonth() {
-		setCurrentMonth(currentMonth.subtract(1, "month").clone());
+		setCurrentMonth(currentMonth.clone().subtract(1, "month"));
 	}
 
 	function monthDays() {

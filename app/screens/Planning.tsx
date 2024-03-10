@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
 	StyleSheet,
 	View,
@@ -61,16 +61,6 @@ function getDayBounds(dayEvents: PlanningEvent[]) {
 	return [dayEvents[0].start, dayEvents.at(-1)!.end];
 }
 
-function nextClassDay(planningData: PlanningType, date: Moment) {
-	let nextDay = date.clone().add(1, "day");
-
-	while (!planningData[nextDay.format("YYYY-MM-DD")]) {
-		nextDay.add(1, "day");
-	}
-
-	return nextDay;
-}
-
 export default function Planning({
 	calendarDeployed,
 	setCalendarDeployed,
@@ -82,6 +72,7 @@ export default function Planning({
 	setMealEvent,
 }: PlanningProps) {
 	const [selectedDate, setSelectedDate] = useState(moment());
+	const [nextClassDay, setNextClassDay] = useState<Moment | null>(null);
 
 	function changeDay(date: Moment) {
 		setSelectedDate(date);
@@ -91,6 +82,18 @@ export default function Planning({
 		setDayEvents(events);
 		setMealEvent(getMealEvent(events));
 	}
+
+	useEffect(() => {
+		if (Object.keys(planningData).length !== 0) {
+			const nextDay = selectedDate.clone();
+
+			while (!planningData[nextDay.format("YYYY-MM-DD")]) {
+				nextDay.add(1, "day");
+			}
+
+			setNextClassDay(nextDay);
+		}
+	}, [planningData, selectedDate]);
 
 	return (
 		<View style={styles.page}>
@@ -122,7 +125,7 @@ export default function Planning({
 						duration={500}
 						rippleColor="#0001"
 						style={styles.subHeadButton}
-						onPress={() => changeDay(selectedDate.subtract(1, "day").clone())}
+						onPress={() => changeDay(selectedDate.clone().subtract(1, "day"))}
 					>
 						<MaterialIcons name="keyboard-arrow-left" size={24} color="white" />
 					</RipplePressable>
@@ -138,7 +141,7 @@ export default function Planning({
 						duration={500}
 						rippleColor="#0001"
 						style={styles.subHeadButton}
-						onPress={() => changeDay(selectedDate.add(1, "day").clone())}
+						onPress={() => changeDay(selectedDate.clone().add(1, "day"))}
 					>
 						<MaterialIcons
 							name="keyboard-arrow-right"
@@ -185,7 +188,7 @@ export default function Planning({
 								{
 									top:
 										(moment(event.start).diff(
-											selectedDate.startOf("day"),
+											selectedDate.clone().startOf("day"),
 											"minutes"
 										) /
 											60 -
@@ -243,7 +246,7 @@ export default function Planning({
 								{
 									top:
 										(mealEvent.start.diff(
-											selectedDate.startOf("day"),
+											selectedDate.clone().startOf("day"),
 											"minutes"
 										) /
 											60 -
@@ -266,33 +269,29 @@ export default function Planning({
 						</View>
 					)}
 					{settings.hourIndicatorEnabled && (
-						<HourIndicator date={selectedDate} />
+						<HourIndicator date={selectedDate.clone()} />
 					)}
 				</View>
 			</ScrollView>
-			{dayEvents.length === 0 && (
+			{dayEvents.length === 0 && nextClassDay && (
 				<View style={styles.noClassContainer}>
 					<Text style={styles.noClassTitle}>Aucun cours prévu</Text>
 					<Text style={styles.noClassDescription}>
 						La prochaine journée de cours est prévue pour le{" "}
-						{nextClassDay(planningData, selectedDate).format("dddd DD MMMM")},{" "}
-						dans{" "}
-						{nextClassDay(planningData, selectedDate).diff(
-							selectedDate,
-							"days"
-						)}{" "}
-						jours.
+						{nextClassDay.format("dddd DD MMMM")},{" "}
+						{nextClassDay.diff(selectedDate, "days") < 2
+							? "le lendemain."
+							: `dans ${nextClassDay.diff(selectedDate, "days")} jours.`}
 					</Text>
 					<RipplePressable
 						rippleColor="#fff1"
 						duration={500}
 						style={styles.noClassButton}
-						onPress={() => changeDay(nextClassDay(planningData, selectedDate))}
+						onPress={() => changeDay(nextClassDay)}
 					>
 						<MaterialIcons name="edit-calendar" size={20} color="white" />
 						<Text style={styles.noClassButtonText}>
-							Aller au{" "}
-							{nextClassDay(planningData, selectedDate).format("dddd DD MMMM")}
+							Aller au {nextClassDay.format("dddd DD MMMM")}
 						</Text>
 					</RipplePressable>
 				</View>

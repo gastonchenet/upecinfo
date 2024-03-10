@@ -13,10 +13,7 @@ export default function HourIndicator({ date }: HourIndicatorProps) {
 	const [time, setTime] = useState(moment());
 
 	useEffect(() => {
-		const interval = setInterval(() => {
-			setTime(moment());
-		}, 1000);
-
+		const interval = setInterval(() => setTime(moment()), 1000);
 		return () => clearInterval(interval);
 	}, []);
 
