@@ -350,14 +350,11 @@ export default function App() {
 
 	useEffect(() => {
 		getItemAsync("theme").then((data) => {
-			setTheme((data as "light" | "dark") ?? "light");
-		});
+			const theme = (data as "light" | "dark") ?? "light";
 
-		if (theme === "dark") {
-			setStyles(darkMode);
-		} else {
-			setStyles(lightMode);
-		}
+			setTheme(theme);
+			setStyles(theme === "dark" ? darkMode : lightMode);
+		});
 	}, [theme]);
 
 	function setPageModalValue(
