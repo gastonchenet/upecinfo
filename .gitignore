@@ -36,8 +36,5 @@ yarn-error.*
 # typescript
 *.tsbuildinfo
 
-# google files
-google-services.json
-
-# admin files
-admin/
+# bun
+bun.lockb
