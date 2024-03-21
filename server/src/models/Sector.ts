@@ -6,7 +6,11 @@ const sectorSchema = new Schema({
 		required: true,
 		unique: true,
 	},
-	expoPushTokens: {
+	planningExpoPushTokens: {
+		type: [SchemaTypes.String],
+		required: true,
+	},
+	infoExpoPushTokens: {
 		type: [SchemaTypes.String],
 		required: true,
 	},

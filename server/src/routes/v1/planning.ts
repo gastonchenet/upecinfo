@@ -95,7 +95,7 @@ router.post("/", async (req, res) => {
 		}
 
 		const sector = await getSector(promo.notificationChannel);
-		sector.expoPushTokens.push(expoPushToken);
+		sector.planningExpoPushTokens.push(expoPushToken);
 		await sector.save();
 	}
 

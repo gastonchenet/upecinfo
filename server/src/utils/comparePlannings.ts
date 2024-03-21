@@ -1,7 +1,7 @@
 import type { Planning, PlanningEvent } from "../types/Planning";
 import moment from "moment";
 
-enum ModificationType {
+export enum ModificationType {
 	Added,
 	Deleted,
 	ModifiedTitle,
@@ -10,7 +10,7 @@ enum ModificationType {
 	ModifiedDate,
 }
 
-type Change = {
+export type Change = {
 	from: PlanningEvent | null;
 	to: PlanningEvent | null;
 	type: ModificationType;
@@ -80,30 +80,51 @@ export function compareModifiedEvents(
 export function formatChanges(changes: Change[]) {
 	return changes.map((change) => {
 		if (!change.from) {
-			return `Ajout de '${change.to?.summary}' le ${moment(
-				change.to!.start
-			).format("ddd D MMMM [à] HH[h]mm")}`;
+			return {
+				...change,
+				formated: `Ajout de '${change.to?.summary}' le ${moment(
+					change.to!.start
+				).format("ddd D MMMM [à] HH[h]mm")}`,
+			};
 		}
 
 		if (!change.to) {
-			return `Suppression de '${change.from.summary}' le ${moment(
-				change.from.start
-			).format("ddd D MMMM [à] HH[h]mm")}`;
+			return {
+				...change,
+				formated: `Suppression de '${change.from.summary}' le ${moment(
+					change.from.start
+				).format("ddd D MMMM [à] HH[h]mm")}`,
+			};
 		}
 
 		const date = moment(change.to.start).format("ddd D MMMM [à] HH[h]mm");
 
 		switch (change.type) {
 			case ModificationType.ModifiedDate:
-				return `Modification de la date de '${change.from.summary}' le ${date}`;
+				return {
+					...change,
+					formated: `Modification de la date de '${change.from.summary}' le ${date}`,
+				};
 			case ModificationType.ModifiedTitle:
-				return `Modification du titre de '${change.from.summary}' le ${date}`;
+				return {
+					...change,
+					formated: `Modification du titre de '${change.from.summary}' le ${date}`,
+				};
 			case ModificationType.ModifiedLocation:
-				return `Modification du lieu de '${change.from.summary}' le ${date}`;
+				return {
+					...change,
+					formated: `Modification du lieu de '${change.from.summary}' le ${date}`,
+				};
 			case ModificationType.ModifiedTeacher:
-				return `Modification du professeur de '${change.from.summary}' le ${date}`;
+				return {
+					...change,
+					formated: `Modification du professeur de '${change.from.summary}' le ${date}`,
+				};
 			default:
-				return `Changement inconnu de '${change.from.summary}' le ${date}`;
+				return {
+					...change,
+					formated: `Changement inconnu de '${change.from.summary}' le ${date}`,
+				};
 		}
 	});
 }

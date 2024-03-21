@@ -1,51 +1,61 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
-	Dimensions,
-	Image,
 	ScrollView,
-	StyleSheet,
-	Text,
 	View,
-	StatusBar as StatusBarRN,
-	Appearance,
+	Text,
+	Linking,
+	Image,
+	Keyboard,
+	Dimensions,
 	ActivityIndicator,
 	Pressable,
-	Keyboard,
+	BackHandler,
 } from "react-native";
 import { EventProvider } from "react-native-outside-press";
-import { MaterialIcons } from "@expo/vector-icons";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { useFonts } from "expo-font";
 import { hideAsync, preventAutoHideAsync } from "expo-splash-screen";
+import { deleteItemAsync, getItemAsync, setItemAsync } from "expo-secure-store";
+import { StatusBar } from "expo-status-bar";
+import { MaterialIcons, Ionicons } from "@expo/vector-icons";
+import moment from "moment";
+import "moment/locale/fr";
+import app from "./app.json";
+import Colors from "./constants/Colors";
+import DefaultSettings from "./constants/DefaultSettings";
+import Links from "./constants/Links";
+import darkMode from "./styles/darkMode";
+import lightMode from "./styles/lightMode";
+import Information from "./screens/Information";
+import Notes from "./screens/Notes";
+import Planning from "./screens/Planning";
+import Settings from "./screens/Settings";
+import ImageVisualizer from "./components/ImageVisualizer";
+import BottomModal from "./components/BottomModal";
+import RipplePressable from "./components/RipplePressable";
+import PageModal from "./components/PageModal";
+import Graph from "./components/Graph";
+import { fetchPromos, fetchPlanning } from "./api/planning";
+import { fetchNoteDistribution } from "./api/notes";
+import {
+	setExpoPushTokenPlanning,
+	setExpoPushTokenInfo,
+	deleteExpoPushTokenInfo,
+	fetchNotifications,
+} from "./api/notifications";
+import getMealEvent from "./utils/getMealEvent";
+import registerForPushNotificationsAsync from "./utils/registerForPushNotificationsAsync";
 import {
 	type MealEvent,
-	type Planning as PlanningType,
 	type PlanningEvent,
+	type Planning as PlanningType,
 	type Promo,
 	type Promos,
 	Sector,
 } from "./types/Planning";
-import moment from "moment";
-import "moment/locale/fr";
-import getTheme from "./utils/getTheme";
-import { GestureHandlerRootView } from "react-native-gesture-handler";
-import { StatusBar } from "expo-status-bar";
-import RipplePressable from "./components/RipplePressable";
-import fetchPlanning from "./utils/fetchPlanning";
-import { Semester, Evaluation, Distribution } from "./types/Notes";
-import { deleteItemAsync, getItemAsync, setItemAsync } from "expo-secure-store";
-import app from "./app.json";
-import BottomModal from "./components/BottomModal";
-import fetchPromos from "./utils/fetchPromos";
-import Graph from "./components/Graph";
-import fetchNoteDistribution from "./utils/fetchNoteDistribution";
-import ImageVisualizer from "./components/ImageVisualizer";
-import Settings from "./screens/Settings";
-import registerForPushNotificationsAsync from "./utils/registerForPushNotificationsAsync";
-import Information from "./screens/Information";
-import Planning from "./screens/Planning";
-import getMealEvent from "./utils/getMealEvent";
-import Notes from "./screens/Notes";
-import DefaultSettings from "./constants/DefaultSettings";
+import type { NotificationAction, Notification } from "./types/Notification";
+import type { Distribution, Evaluation, Semester } from "./types/Notes";
+import type { Message } from "./types/Message";
 
 type Auth = {
 	username: string;
@@ -58,9 +68,11 @@ preventAutoHideAsync();
 moment.locale("fr");
 
 let alreadyAnimated = false;
+let currentPage = DEFAULT_PAGE;
 
 export default function App() {
 	const [planningData, setPlanningData] = useState<PlanningType>({});
+	const [selectedDate, setSelectedDate] = useState(moment());
 	const [calendarDeployed, setCalendarDeployed] = useState(false);
 	const [dayEvents, setDayEvents] = useState<PlanningEvent[]>([]);
 	const [mealEvent, setMealEvent] = useState<MealEvent | null>(null);
@@ -74,6 +86,19 @@ export default function App() {
 	const [selectedNote, setSelectedNote] = useState<Evaluation | null>(null);
 	const [promos, setPromos] = useState<Promos>({});
 	const [expoPushToken, setExpoPushToken] = useState<string | null>(null);
+	const [theme, setTheme] = useState<"light" | "dark" | null>(null);
+	const [notifications, setNotifications] = useState<Notification[]>([]);
+	const [styles, setStyles] = useState<any>(null);
+
+	const [pageModals, setPageModals] = useState<{
+		message: null | Message;
+		ue: boolean;
+		notifications: boolean;
+	}>({
+		message: null,
+		notifications: false,
+		ue: false,
+	});
 
 	const [promo, setPromo] = useState<
 		{ sector: Sector } | (Promo & { sector: Sector }) | null
@@ -88,6 +113,39 @@ export default function App() {
 	const [noteDistribution, setNoteDistribution] = useState<Distribution | null>(
 		null
 	);
+
+	const pageContainerRef = useRef<ScrollView | null>(null);
+
+	function gotoPage(page: number) {
+		pageContainerRef.current?.scrollTo({
+			x: Dimensions.get("window").width * page,
+			animated: true,
+		});
+	}
+
+	function executeAction(action: NotificationAction) {
+		const [actName, actValue] = action.split(":");
+
+		setPageModals({
+			message: null,
+			notifications: false,
+			ue: false,
+		});
+
+		switch (actName) {
+			case "TODATE":
+				gotoPage(DEFAULT_PAGE);
+				setSelectedDate(moment(actValue, "YYYY-MM-DD"));
+				break;
+
+			case "TOPAGE":
+				gotoPage(parseInt(actValue));
+				break;
+
+			default:
+				break;
+		}
+	}
 
 	async function selectNote(note: Evaluation | null) {
 		setSelectedNote(note);
@@ -124,7 +182,21 @@ export default function App() {
 		p.fetching = true;
 		setPromos({ ...promos });
 
-		fetchPlanning(promo!.sector, p.year, p.campus, p.group, expoPushToken).then(
+		if (expoPushToken) {
+			if (settings.planningNotificationEnabled) {
+				setExpoPushTokenPlanning(p.notificationChannel, expoPushToken);
+			}
+
+			if (settings.infoNotificationEnabled && auth) {
+				if (promo!.sector === Sector.Info) {
+					setExpoPushTokenInfo(p.notificationChannel, expoPushToken);
+				} else {
+					deleteExpoPushTokenInfo(expoPushToken);
+				}
+			}
+		}
+
+		fetchPlanning(promo!.sector, p.year, p.campus, p.group).then(
 			([success, data]) => {
 				if (success) {
 					setPlanningData(data);
@@ -155,11 +227,21 @@ export default function App() {
 		await deleteItemAsync("auth");
 		setDisconnecting(false);
 		setDisconnectModalVisible(false);
+		if (expoPushToken) deleteExpoPushTokenInfo(expoPushToken);
 	}
 
 	function setSettingsValue(key: keyof typeof DefaultSettings, value: boolean) {
 		setSettings({ ...settings, [key]: value });
 		setItemAsync("settings", JSON.stringify({ ...settings, [key]: value }));
+	}
+
+	function onBackPress() {
+		if (currentPage !== DEFAULT_PAGE && pageContainerRef.current) {
+			gotoPage(DEFAULT_PAGE);
+			return true;
+		}
+
+		return false;
 	}
 
 	const [fontsLoaded] = useFonts({
@@ -184,20 +266,28 @@ export default function App() {
 		});
 
 		getItemAsync("settings").then(async (data) => {
-			if (!data) return;
-
 			const settings = {
 				...DefaultSettings,
-				...JSON.parse(data),
+				...JSON.parse(data ?? "{}"),
 			};
 
 			setSettings(settings);
 
 			let token: string | null = null;
 
-			if (settings.planningNotificationEnabled) {
+			if (
+				(settings.planningNotificationEnabled ||
+					settings.messageNotificationEnabled) &&
+				!expoPushToken
+			) {
 				token = (await registerForPushNotificationsAsync()) ?? null;
 				setExpoPushToken(token);
+			}
+
+			if (token) {
+				fetchNotifications(token).then((data) => {
+					setNotifications(data);
+				});
 			}
 
 			getItemAsync("promo").then((data) => {
@@ -205,26 +295,45 @@ export default function App() {
 				const promo: Promo & { sector: Sector } = JSON.parse(data);
 				setPromo(promo);
 
-				fetchPlanning(
-					promo.sector,
-					promo.year,
-					promo.campus,
-					promo.group,
-					token
-				).then(([success, data]) => {
-					if (success) {
-						setPlanningData(data);
-						const events = data[moment().format("YYYY-MM-DD")] ?? [];
-						setDayEvents(events);
-						setMealEvent(getMealEvent(events));
-					} else {
-						deleteItemAsync("promo");
-						setEditingPromo(true);
-						setPromo(null);
+				if (token) {
+					if (settings.planningNotificationEnabled) {
+						setExpoPushTokenPlanning(
+							(promo as Promo).notificationChannel,
+							token
+						);
 					}
-				});
+
+					if (settings.infoNotificationEnabled && auth) {
+						if (promo!.sector === Sector.Info) {
+							setExpoPushTokenInfo((promo as Promo).notificationChannel, token);
+						} else {
+							deleteExpoPushTokenInfo(token);
+						}
+					}
+				}
+
+				fetchPlanning(promo.sector, promo.year, promo.campus, promo.group).then(
+					([success, data]) => {
+						if (success) {
+							setPlanningData(data);
+							const events = data[moment().format("YYYY-MM-DD")] ?? [];
+							setDayEvents(events);
+							setMealEvent(getMealEvent(events));
+						} else {
+							deleteItemAsync("promo");
+							setEditingPromo(true);
+							setPromo(null);
+						}
+					}
+				);
 			});
 		});
+
+		BackHandler.addEventListener("hardwareBackPress", onBackPress);
+
+		return () => {
+			BackHandler.removeEventListener("hardwareBackPress", onBackPress);
+		};
 	}, [
 		setAuth,
 		setSemesters,
@@ -236,19 +345,38 @@ export default function App() {
 		setDayEvents,
 		setMealEvent,
 		setPromo,
+		setNotifications,
 	]);
 
-	const onLayoutRootView = useCallback(async () => {
-		if (fontsLoaded && Object.keys(promos).length > 0) return await hideAsync();
-	}, [fontsLoaded, promos]);
+	useEffect(() => {
+		getItemAsync("theme").then((data) => {
+			setTheme((data as "light" | "dark") ?? "light");
+		});
 
-	if (!fontsLoaded || Object.keys(promos).length === 0) return null;
+		if (theme === "dark") {
+			setStyles(darkMode);
+		} else {
+			setStyles(lightMode);
+		}
+	}, [theme]);
+
+	function setPageModalValue(
+		key: keyof typeof pageModals,
+		value: boolean | Message | null
+	) {
+		setPageModals({ ...pageModals, [key]: value });
+	}
+
+	const onLayoutRootView = useCallback(async () => {
+		if (fontsLoaded && Object.keys(promos).length > 0 && theme)
+			return await hideAsync();
+	}, [fontsLoaded, promos, theme]);
+
+	if (!fontsLoaded || Object.keys(promos).length === 0 || !theme) return null;
 
 	return (
 		<EventProvider onLayout={onLayoutRootView}>
-			<GestureHandlerRootView
-				style={[styles.container, { backgroundColor: getTheme().primary }]}
-			>
+			<GestureHandlerRootView style={styles.container}>
 				<StatusBar style="light" />
 				<ImageVisualizer
 					image={image}
@@ -259,6 +387,7 @@ export default function App() {
 					title="Déconnexion"
 					visible={disconnectModalVisible}
 					onClose={() => setDisconnectModalVisible(false)}
+					theme={theme}
 				>
 					<Text style={styles.modalDescription}>
 						Es-tu sûr de vouloir te déconnecter ?
@@ -271,7 +400,7 @@ export default function App() {
 							onPress={disconnect}
 						>
 							{disconnecting && (
-								<ActivityIndicator size="small" color={getTheme().white} />
+								<ActivityIndicator size="small" color={Colors.white} />
 							)}
 							<Text
 								style={[styles.modalButtonText, styles.modalButtonDangerText]}
@@ -281,9 +410,7 @@ export default function App() {
 						</RipplePressable>
 						<RipplePressable
 							duration={500}
-							rippleColor={
-								Appearance.getColorScheme() === "dark" ? "#fff1" : "#0001"
-							}
+							rippleColor={theme === "dark" ? "#fff1" : "#0001"}
 							style={styles.modalButton}
 							onPress={() => setDisconnectModalVisible(false)}
 						>
@@ -295,6 +422,7 @@ export default function App() {
 					title={selectedNote?.title ?? null}
 					visible={!!selectedNote}
 					onClose={() => selectedNote && selectNote(null)}
+					theme={theme}
 				>
 					<Text style={styles.evalItem}>
 						<Text style={styles.evalItemLabel}>Note</Text>
@@ -334,6 +462,7 @@ export default function App() {
 							padding={20}
 							distribution={noteDistribution}
 							note={selectedNote?.note ?? 0}
+							theme={theme}
 						/>
 					) : (
 						<ActivityIndicator
@@ -355,13 +484,15 @@ export default function App() {
 					canBeClosed={false}
 					contentStyle={styles.planningChangeContent}
 					boxStyle={styles.planningChangeBottomModal}
+					theme={theme}
 				>
 					<ScrollView
 						contentContainerStyle={styles.promoSelectorContainer}
 						showsVerticalScrollIndicator={false}
 					>
-						{promo?.sector
-							? promos[promo.sector].map((promo, index) => (
+						{promo?.sector ? (
+							<React.Fragment>
+								{promos[promo.sector].map((promo, index) => (
 									<Pressable
 										key={index}
 										style={styles.promoSelector}
@@ -372,7 +503,7 @@ export default function App() {
 											<View style={styles.arrowButtonActivityContainer}>
 												<ActivityIndicator
 													size="small"
-													color={getTheme().darkGray}
+													color={Colors[theme].darkGray}
 												/>
 											</View>
 										) : (
@@ -380,13 +511,29 @@ export default function App() {
 												<MaterialIcons
 													name="arrow-forward"
 													size={20}
-													color={getTheme().light}
+													color={Colors[theme].light}
 												/>
 											</View>
 										)}
 									</Pressable>
-							  ))
-							: Object.keys(promos).map((sector, index) => (
+								))}
+								<Pressable
+									style={styles.promoSelector}
+									onPress={() => Linking.openURL(Links.DISCORD_SERVER_URL)}
+								>
+									<Text style={styles.promoText}>Il n'y a pas ma classe</Text>
+									<View style={styles.arrowButtonContainer}>
+										<MaterialIcons
+											name="arrow-forward"
+											size={20}
+											color={Colors[theme].light}
+										/>
+									</View>
+								</Pressable>
+							</React.Fragment>
+						) : (
+							<React.Fragment>
+								{Object.keys(promos).map((sector, index) => (
 									<Pressable
 										key={index}
 										style={styles.promoSelector}
@@ -397,19 +544,38 @@ export default function App() {
 											<MaterialIcons
 												name="arrow-forward"
 												size={20}
-												color={getTheme().light}
+												color={Colors[theme].light}
 											/>
 										</View>
 									</Pressable>
-							  ))}
+								))}
+								<Pressable
+									style={styles.promoSelector}
+									onPress={() => Linking.openURL(Links.DISCORD_SERVER_URL)}
+								>
+									<Text style={styles.promoText}>
+										Il n'y a pas ma promotion
+									</Text>
+									<View style={styles.arrowButtonContainer}>
+										<MaterialIcons
+											name="arrow-forward"
+											size={20}
+											color={Colors[theme].light}
+										/>
+									</View>
+								</Pressable>
+							</React.Fragment>
+						)}
 					</ScrollView>
 				</BottomModal>
 				<View style={styles.head}>
-					<Image
-						source={require("./assets/images/upec.png")}
-						style={styles.appIcon}
-						resizeMode="center"
-					/>
+					<Pressable onPress={() => gotoPage(DEFAULT_PAGE)}>
+						<Image
+							source={require("./assets/images/upec.png")}
+							style={styles.appIcon}
+							resizeMode="center"
+						/>
+					</Pressable>
 					<View style={styles.headText}>
 						<Text style={styles.appTitle}>{app.expo.name}</Text>
 						<Text style={styles.appDescription}>
@@ -417,12 +583,27 @@ export default function App() {
 							{(promo as Promo)?.name ? ` - ${(promo as Promo).name}` : ""}
 						</Text>
 					</View>
+					<View style={styles.headButtons}>
+						<RipplePressable
+							style={styles.headButton}
+							duration={500}
+							rippleColor="#0001"
+							onPress={() => setPageModalValue("notifications", true)}
+						>
+							<MaterialIcons
+								name="notifications"
+								size={24}
+								color={Colors.white}
+							/>
+						</RipplePressable>
+					</View>
 				</View>
 				<ScrollView
-					style={[styles.container, { backgroundColor: getTheme().primary }]}
+					style={styles.container}
 					horizontal
 					pagingEnabled
 					ref={(ref) => {
+						pageContainerRef.current = ref;
 						if (alreadyAnimated) return;
 
 						ref?.scrollTo({
@@ -432,21 +613,27 @@ export default function App() {
 
 						alreadyAnimated = true;
 					}}
-					onScroll={() => {
+					onScroll={(e) => {
 						Keyboard.dismiss();
 						setDisconnectModalVisible(false);
 						setCalendarDeployed(false);
 						if (selectedNote) selectNote(null);
+						currentPage = Math.round(
+							e.nativeEvent.contentOffset.x / Dimensions.get("window").width
+						);
 					}}
+					scrollEnabled={Object.values(pageModals).every((v) => !v)}
 				>
 					<Settings
 						setDisconnectModalVisible={setDisconnectModalVisible}
 						setSettingsValue={setSettingsValue}
 						changePlanning={changePlanning}
 						settings={settings}
-						promo={promo as Promo | null}
+						promo={promo as (Promo & { sector: Sector }) | null}
 						expoPushToken={expoPushToken}
 						setExpoPushToken={setExpoPushToken}
+						theme={theme}
+						setTheme={setTheme}
 					/>
 					<Planning
 						calendarDeployed={calendarDeployed}
@@ -457,9 +644,14 @@ export default function App() {
 						setDayEvents={setDayEvents}
 						setMealEvent={setMealEvent}
 						settings={settings}
+						selectedDate={selectedDate}
+						setSelectedDate={setSelectedDate}
+						theme={theme}
 					/>
 					{promo?.sector === Sector.Info && (
 						<Notes
+							promo={promo as (Promo & { sector: Sector }) | null}
+							expoPushToken={expoPushToken}
 							auth={auth}
 							selectNote={selectNote}
 							selectedSemester={selectedSemester}
@@ -467,148 +659,74 @@ export default function App() {
 							setAuth={setAuth}
 							setSelectedSemester={setSelectedSemester}
 							setSemesters={setSemesters}
+							theme={theme}
+							UEModalVisible={pageModals.ue}
+							setUEModalVisible={(ue) => setPageModalValue("ue", ue)}
+							settings={settings}
 						/>
 					)}
 					{promo?.sector === Sector.Info && auth && (
-						<Information setImage={setImage} />
+						<Information
+							setImage={setImage}
+							theme={theme}
+							selectedMessage={pageModals.message}
+							setSelectedMessage={(message) =>
+								setPageModalValue("message", message)
+							}
+						/>
 					)}
 				</ScrollView>
+				<PageModal
+					head={
+						<View style={styles.flexBox}>
+							<Text style={styles.pageModalTitle}>Notifications</Text>
+							{notifications.length ? (
+								<Text style={styles.pageModalSubtitle}>
+									La dernière notification reçue date de{" "}
+									{moment(notifications[0].createdAt).fromNow()}
+								</Text>
+							) : (
+								<Text style={styles.pageModalSubtitle}>
+									Vous n'avez reçu aucune notification
+								</Text>
+							)}
+						</View>
+					}
+					theme={theme}
+					visible={pageModals.notifications}
+					onClose={() => setPageModalValue("notifications", false)}
+					statusBarPadding
+				>
+					{notifications.map((notif, index) => (
+						<RipplePressable
+							key={index}
+							style={styles.notification}
+							duration={500}
+							onPress={() => notif.action && executeAction(notif.action)}
+							rippleColor={
+								notif.action ? (theme === "dark" ? "#fff1" : "#0001") : "#fff0"
+							}
+						>
+							<Ionicons
+								name={notif.icon ?? "information-circle"}
+								size={32}
+								color={Colors[theme].header}
+							/>
+							<View style={styles.flexBox}>
+								<View style={styles.notifHead}>
+									<Text style={styles.notificationTitle}>{notif.title}</Text>
+									<Text style={styles.notificationDate}>
+										{moment(notif.createdAt).diff(moment(), "days") === 0
+											? moment(notif.createdAt).fromNow()
+											: moment(notif.createdAt).format("DD MMMM, HH[h]mm")}
+									</Text>
+								</View>
+								<Text style={styles.notificationBody}>{notif.body}</Text>
+							</View>
+						</RipplePressable>
+					))}
+				</PageModal>
 			</GestureHandlerRootView>
 		</EventProvider>
 	);
 }
-
-const styles = StyleSheet.create({
-	container: {
-		flex: 1,
-	},
-	head: {
-		alignItems: "center",
-		flexDirection: "row",
-		paddingTop: StatusBarRN.currentHeight!,
-		paddingHorizontal: 15,
-		paddingBottom: 5,
-		backgroundColor: getTheme().accent,
-		gap: 15,
-	},
-	appIcon: {
-		width: 50,
-		height: 32,
-		marginBottom: 8,
-	},
-	headText: {
-		justifyContent: "center",
-		marginBottom: 8,
-	},
-	appTitle: {
-		color: getTheme().white,
-		fontSize: 22,
-		fontFamily: "Rubik-ExtraBold",
-		lineHeight: 28,
-	},
-	appDescription: {
-		color: getTheme().white80,
-		fontWeight: "400",
-		fontSize: 12,
-		fontFamily: "Rubik-Regular",
-		lineHeight: 18,
-	},
-	modalButtons: {
-		flexDirection: "row",
-		justifyContent: "space-between",
-		gap: 20,
-	},
-	modalDescription: {
-		fontFamily: "Rubik-Regular",
-		color: getTheme().gray,
-		fontSize: 14,
-	},
-	modalButton: {
-		backgroundColor: getTheme().borderColor,
-		padding: 15,
-		borderRadius: 10,
-		flex: 1,
-		marginTop: 15,
-		flexDirection: "row",
-		alignItems: "center",
-		justifyContent: "center",
-		gap: 10,
-	},
-	modalButtonText: {
-		fontFamily: "Rubik-Regular",
-		color: getTheme().header80,
-		textAlign: "center",
-	},
-	modalButtonDanger: {
-		backgroundColor: getTheme().red,
-	},
-	modalButtonDangerText: {
-		color: getTheme().white,
-	},
-	dateText: {
-		marginTop: 15,
-		color: getTheme().lightGray,
-		fontSize: 12,
-		fontFamily: "Rubik-Regular",
-		textTransform: "capitalize",
-	},
-	evalItem: {
-		fontFamily: "Rubik-Regular",
-		color: getTheme().header,
-	},
-	evalItemLabel: {
-		fontFamily: "Rubik-Bold",
-		color: getTheme().gray,
-		fontSize: 12,
-		textTransform: "uppercase",
-	},
-	promoSelectorContainer: {
-		gap: 15,
-		paddingVertical: 15,
-	},
-	promoSelector: {
-		borderWidth: 2,
-		borderColor: getTheme().gray,
-		borderRadius: 10,
-		padding: 10,
-		flexDirection: "row",
-		alignItems: "center",
-		justifyContent: "space-between",
-		gap: 10,
-	},
-	promoText: {
-		fontFamily: "Rubik-Regular",
-		color: getTheme().header,
-		fontSize: 13,
-		marginLeft: 5,
-	},
-	arrowButtonActivityContainer: {
-		height: 30,
-		width: 30,
-		justifyContent: "center",
-		alignItems: "center",
-	},
-	arrowButtonContainer: {
-		height: 30,
-		width: 30,
-		backgroundColor: getTheme().darkGray,
-		justifyContent: "center",
-		alignItems: "center",
-		borderRadius: 15,
-	},
-	planningChangeContent: {
-		maxHeight: 380,
-	},
-	planningChangeBottomModal: {
-		paddingBottom: 0,
-	},
-	settingButtonDescription: {
-		fontFamily: "Rubik-Regular",
-		color: getTheme().lightGray,
-		fontSize: 12,
-		marginTop: 2,
-	},
-	graphLoader: {
-		marginTop: 40,
-	},
-});

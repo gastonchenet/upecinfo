@@ -7,6 +7,7 @@ export default async function sendNotification(
 	title: string,
 	body: string
 ) {
+	if (usersIds.length === 0) return;
 	await axios.post(API_URL, {
 		to: usersIds,
 		title,

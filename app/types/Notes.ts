@@ -61,11 +61,25 @@ type Resource = {
 	evaluations: Evaluation[];
 };
 
+type UE = {
+	id: string;
+	title: string;
+	note: number;
+	min_note: number;
+	max_note: number;
+	average: number;
+	rank: number;
+	groupSize: number;
+	bonus: number;
+	malus: number;
+	evaluations: Evaluation[];
+};
+
 type Semester = {
 	num: number;
 	startDate: string;
 	endDate: string;
-	rank: string;
+	rank: number;
 	groupSize: number;
 	note: number;
 	min_note: number;
@@ -73,6 +87,7 @@ type Semester = {
 	average: number;
 	resources: Resource[];
 	saes: Resource[];
+	ues: UE[];
 };
 
 type Distribution = [

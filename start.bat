@@ -1,7 +1,7 @@
 cd app
 start cmd /k npx expo start --clear --port 3000
 cd ../server
-start cmd /k tsc -w
+start cmd /k tsc --watch
 start cmd /k npm run dev
 @REM cd ../bot
 @REM start cmd /k tsc -w

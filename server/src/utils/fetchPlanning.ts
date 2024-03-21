@@ -34,7 +34,7 @@ export default async function fetchPlanning(planningId: string) {
 	rawData.split("BEGIN:VEVENT").forEach((event) => {
 		if (!event.includes("END:VEVENT")) return;
 
-		const lines = event.split("\n");
+		const lines = event.split(/\n(?=[A-Z-]+:)/);
 		const uid = lines.find((line) => line.startsWith("UID:"));
 		const start = lines.find((line) => line.startsWith("DTSTART:"));
 		const end = lines.find((line) => line.startsWith("DTEND:"));
@@ -53,21 +53,27 @@ export default async function fetchPlanning(planningId: string) {
 			"+01:00"
 		);
 
+		const parsedSummary = getItemValue(summary).replace(/\\,\s*/g, ", ");
+
 		const parsedLocation = getItemValue(location)
 			.replace(/\s*\(\d+\)/g, "")
+			.replace(/\\,\s*/g, "\n")
 			.trim();
 
-		const parsedTeacher = getItemValue(description)
-			.split(/(?:\\n)+/)
-			.at(-2);
-
-		if (!parsedTeacher) return;
+		const parsedTeacher =
+			getItemValue(description)
+				.normalize("NFD")
+				.replace(/[\u0300-\u036f]/g, "")
+				.match(
+					/(?<=\\n)(?:[A-Z\s][a-z\s]+)(?:(?:-|\n|\s)+[A-Z\s][a-z\s]+)+(?=\\n)/gm
+				)?.[0]
+				?.replace(/\n\s/g, "") ?? "Professeur inconnu";
 
 		data.push({
 			uid: getItemValue(uid),
 			start: parsedStart.toISOString(),
 			end: parsedEnd.toISOString(),
-			summary: getItemValue(summary),
+			summary: parsedSummary,
 			location: parsedLocation,
 			teacher: parsedTeacher,
 		});

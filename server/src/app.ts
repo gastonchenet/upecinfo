@@ -3,12 +3,17 @@ import express from "express";
 import cors from "cors";
 import routes from "./routes";
 import connect from "./utils/connect";
-import listenForChanges from "./utils/listenForChanges";
+import fs from "fs";
+import path from "path";
 
 const app = express();
 
 connect();
-listenForChanges();
+
+fs.readdirSync(path.join(__dirname, "listeners")).forEach((file) => {
+	const { default: listener } = require(`./listeners/${file}`);
+	listener();
+});
 
 app.use(cors());
 app.use(express.json());

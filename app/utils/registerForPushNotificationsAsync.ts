@@ -1,7 +1,6 @@
 import { Platform } from "react-native";
 import Constants from "expo-constants";
 import { isDevice } from "expo-device";
-import getTheme from "./getTheme";
 import {
 	getExpoPushTokenAsync,
 	getPermissionsAsync,
@@ -9,6 +8,7 @@ import {
 	AndroidImportance,
 	setNotificationChannelAsync,
 } from "expo-notifications";
+import Colors from "../constants/Colors";
 
 export default async function registerForPushNotificationsAsync() {
 	if (Platform.OS === "android") {
@@ -16,7 +16,7 @@ export default async function registerForPushNotificationsAsync() {
 			name: "default",
 			importance: AndroidImportance.MAX,
 			vibrationPattern: [0, 250, 250, 250],
-			lightColor: getTheme().accent,
+			lightColor: Colors.accent,
 		});
 	}
 

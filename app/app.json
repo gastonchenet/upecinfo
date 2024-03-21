@@ -1,11 +1,16 @@
 {
 	"expo": {
-		"name": "Info UPEC",
+		"name": "UPEC Info",
 		"slug": "infoupec",
-		"version": "1.5.1",
+		"version": "1.5.3",
 		"orientation": "portrait",
 		"icon": "./assets/images/icon.png",
-		"userInterfaceStyle": "dark",
+		"userInterfaceStyle": "automatic",
+		"owner": "du_cassoulet",
+		"privacy": "unlisted",
+		"description": "L'application de d'informations de l'UPEC.",
+		"platforms": ["android"],
+		"githubUrl": "https://github.com/du-cassoulet/upecinfo",
 		"splash": {
 			"image": "./assets/images/splash.png",
 			"resizeMode": "contain",
@@ -15,7 +20,7 @@
 		"ios": {
 			"supportsTablet": true,
 			"bundleIdentifier": "com.ducassoulet.infoupec",
-			"buildNumber": "1.5.1"
+			"buildNumber": "1.5.3"
 		},
 		"android": {
 			"adaptiveIcon": {
@@ -23,11 +28,12 @@
 				"backgroundColor": "#e42535"
 			},
 			"package": "com.du_cassoulet.infoupec",
-			"versionCode": 16,
+			"versionCode": 19,
 			"googleServicesFile": "./google-services.json"
 		},
 		"web": {
-			"favicon": "./assets/images/icon.png"
+			"favicon": "./assets/images/icon.png",
+			"themeColor": "#e42535"
 		},
 		"plugins": [
 			"expo-secure-store",
