@@ -10,6 +10,8 @@ import {
 	ActivityIndicator,
 	Pressable,
 	BackHandler,
+	Appearance,
+	type ColorSchemeName,
 } from "react-native";
 import { EventProvider } from "react-native-outside-press";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
@@ -244,6 +246,55 @@ export default function App() {
 		return false;
 	}
 
+	function getSettings(): Promise<typeof DefaultSettings> {
+		return new Promise((resolve) => {
+			const settings = { ...DefaultSettings };
+
+			getItemAsync("settings")
+				.then((data) => {
+					if (!data) return resolve(settings);
+					resolve({ ...settings, ...JSON.parse(data) });
+				})
+				.catch(() => {
+					resolve(settings);
+				});
+		});
+	}
+
+	function getPromo(): Promise<(Promo & { sector: Sector }) | null> {
+		return new Promise((resolve) => {
+			getItemAsync("promo")
+				.then((data) => {
+					if (!data) return resolve(null);
+					resolve(JSON.parse(data));
+				})
+				.catch(() => {
+					resolve(null);
+				});
+		});
+	}
+
+	async function getTheme(): Promise<"light" | "dark"> {
+		const systemTheme = Appearance.getColorScheme();
+
+		return new Promise((resolve) => {
+			getItemAsync("theme")
+				.then((data) => {
+					resolve((data as ColorSchemeName) ?? systemTheme ?? "light");
+				})
+				.catch(() => {
+					resolve(systemTheme ?? "light");
+				});
+		});
+	}
+
+	function setPageModalValue(
+		key: keyof typeof pageModals,
+		value: boolean | Message | null
+	) {
+		setPageModals({ ...pageModals, [key]: value });
+	}
+
 	const [fontsLoaded] = useFonts({
 		"Rubik-Regular": require("./assets/fonts/Rubik-Regular.ttf"),
 		"Rubik-Italic": require("./assets/fonts/Rubik-Italic.ttf"),
@@ -265,19 +316,14 @@ export default function App() {
 			setPromos(promos);
 		});
 
-		getItemAsync("settings").then(async (data) => {
-			const settings = {
-				...DefaultSettings,
-				...JSON.parse(data ?? "{}"),
-			};
-
+		getSettings().then(async (settings) => {
 			setSettings(settings);
 
 			let token: string | null = null;
 
 			if (
 				(settings.planningNotificationEnabled ||
-					settings.messageNotificationEnabled) &&
+					settings.infoNotificationEnabled) &&
 				!expoPushToken
 			) {
 				token = (await registerForPushNotificationsAsync()) ?? null;
@@ -290,9 +336,8 @@ export default function App() {
 				});
 			}
 
-			getItemAsync("promo").then((data) => {
-				if (!data) return setEditingPromo(true);
-				const promo: Promo & { sector: Sector } = JSON.parse(data);
+			getPromo().then((promo) => {
+				if (!promo) return setEditingPromo(true);
 				setPromo(promo);
 
 				if (token) {
@@ -349,20 +394,11 @@ export default function App() {
 	]);
 
 	useEffect(() => {
-		getItemAsync("theme").then((data) => {
-			const theme = (data as "light" | "dark") ?? "light";
-
+		getTheme().then((theme) => {
 			setTheme(theme);
 			setStyles(theme === "dark" ? darkMode : lightMode);
 		});
 	}, [theme]);
-
-	function setPageModalValue(
-		key: keyof typeof pageModals,
-		value: boolean | Message | null
-	) {
-		setPageModals({ ...pageModals, [key]: value });
-	}
 
 	const onLayoutRootView = useCallback(async () => {
 		if (fontsLoaded && Object.keys(promos).length > 0 && theme)

@@ -61,12 +61,25 @@ export default function Information({
 		}
 	}
 
+	function getLastChecked(): Promise<Moment | null> {
+		return new Promise((resolve) => {
+			getItemAsync("last_checked")
+				.then((data) => {
+					if (!data) return;
+					resolve(moment(data));
+				})
+				.catch(() => {
+					resolve(null);
+				});
+		});
+	}
+
 	useEffect(() => {
 		fetchMessages().then((data) => setMessages(data));
 
-		getItemAsync("last_checked").then((data) => {
-			if (!data) return;
-			setLastSeen(moment(data));
+		getLastChecked().then((lastChecked) => {
+			if (!lastChecked) return;
+			setLastSeen(lastChecked);
 		});
 	}, []);
 

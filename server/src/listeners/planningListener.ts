@@ -88,7 +88,9 @@ export default async function planningListener() {
 					change.formated
 				);
 			} catch {
-				console.log("Failed to send notifications.");
+				console.log(
+					`[${moment().format("HH:mm:ss")}] Failed to send notifications.`
+				);
 			}
 		});
 	});

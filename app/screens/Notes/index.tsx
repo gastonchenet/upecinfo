@@ -158,10 +158,22 @@ export default function Notes({
 		});
 	}
 
+	function getAuth(): Promise<Auth | null> {
+		return new Promise((resolve) => {
+			getItemAsync("auth")
+				.then((data) => {
+					if (!data) return resolve(null);
+					resolve(JSON.parse(data));
+				})
+				.catch(() => {
+					resolve(null);
+				});
+		});
+	}
+
 	useEffect(() => {
-		getItemAsync("auth").then((data) => {
-			if (!data) return;
-			const auth: Auth = JSON.parse(data);
+		getAuth().then((auth) => {
+			if (!auth) return;
 			setAuth(auth);
 
 			if (expoPushToken && settings.infoNotificationEnabled && auth) {

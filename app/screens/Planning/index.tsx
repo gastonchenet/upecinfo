@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { View, Text, ScrollView, Image, Pressable } from "react-native";
+import { View, Text, ScrollView, Image } from "react-native";
 import { MaterialIcons } from "@expo/vector-icons";
 import moment, { type Moment } from "moment";
 import "moment/locale/fr";

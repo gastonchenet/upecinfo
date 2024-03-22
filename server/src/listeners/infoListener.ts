@@ -4,12 +4,16 @@ import Sector from "../models/Sector";
 import Info from "../constants/Planning/Info";
 import { MIN_CONTENT_LENGTH, USERNAME_MAP } from "../constants/Information";
 import Notification from "../models/Notification";
+import moment from "moment";
+import "moment/locale/fr";
 
 export default function infoListener() {
 	const ws = new WebSocket("wss://gateway.discord.gg/?v=9&encoding=json");
 
 	ws.onopen = function () {
-		console.log("Connected to Discord WebSocket");
+		console.log(
+			`[${moment().format("HH:mm:ss")}] Connected to Discord WebSocket`
+		);
 
 		ws.send(
 			JSON.stringify({
@@ -77,7 +81,9 @@ export default function infoListener() {
 	};
 
 	ws.onclose = function () {
-		console.log("Disconnected from Discord WebSocket");
+		console.log(
+			`[${moment().format("HH:mm:ss")}] Disconnected from Discord WebSocket`
+		);
 	};
 
 	function heartbeat(interval: number, ws: WebSocket) {
