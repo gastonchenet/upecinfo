@@ -28,7 +28,7 @@
 				"backgroundColor": "#e42535"
 			},
 			"package": "com.du_cassoulet.infoupec",
-			"versionCode": 19,
+			"versionCode": 20,
 			"googleServicesFile": "./google-services.json"
 		},
 		"web": {

@@ -1,4 +1,8 @@
-import { type Planning, type PlanningEvent } from "../types/Planning";
+import {
+	EventType,
+	type Planning,
+	type PlanningEvent,
+} from "../types/Planning";
 import packageContent from "../../package.json";
 import moment from "moment";
 import "moment/locale/fr";
@@ -69,6 +73,17 @@ export default async function fetchPlanning(planningId: string) {
 				)?.[0]
 				?.replace(/\n\s/g, "") ?? "Professeur inconnu";
 
+		const parsedType =
+			/(?<!\w)(?:(?:[eé](?:(?:xam(?:en)?)|valuation))|(?:contr[ôo]le))s?|ds|devoirs\ssurveill[eé]s|devoir\ssurveill[eé](?!\w)/gi.test(
+				parsedSummary
+			)
+				? EventType.Evaluation
+				: /(?<!\w)(?:(?:partiel(?:le)?|soutenance)s?)|(?:sa[eé])(?!\w)/gi.test(
+						parsedSummary
+				  )
+				? EventType.Sae
+				: EventType.Class;
+
 		data.push({
 			uid: getItemValue(uid),
 			start: parsedStart.toISOString(),
@@ -76,6 +91,7 @@ export default async function fetchPlanning(planningId: string) {
 			summary: parsedSummary,
 			location: parsedLocation,
 			teacher: parsedTeacher,
+			type: parsedType,
 		});
 	});
 

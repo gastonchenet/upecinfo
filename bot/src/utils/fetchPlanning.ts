@@ -6,14 +6,13 @@ export default async function fetchPlanning(
 	promo: Promo
 ): Promise<{ planning: Planning; url: string } | null> {
 	const url = new URL("https://upec-info.com/planning");
+	url.searchParams.append("sector", "info");
 	url.searchParams.append("year", promo.year.toString());
 	url.searchParams.append("campus", promo.campus);
 	url.searchParams.append("group", promo.group.toString());
 
 	try {
-		const { data } = await axios.post(url.toString(), {
-			expoPushToken: null,
-		});
+		const { data } = await axios.get(url.toString());
 
 		return {
 			planning: data,

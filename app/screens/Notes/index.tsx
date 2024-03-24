@@ -46,14 +46,13 @@ type NotesProps = {
 
 function getAverage(resources: Resource) {
 	const totalCoefficient = resources.evaluations.reduce(
-		(acc, e) => acc + e.coefficient,
+		(acc, e) => acc + (e.note !== null && !isNaN(e.note) ? e.coefficient : 0),
 		0
 	);
 
-	const totalNote = resources.evaluations.reduce(
-		(acc, e) => acc + e.note * e.coefficient,
-		0
-	);
+	const totalNote = resources.evaluations
+		.filter((e) => e.note !== null && !isNaN(e.note))
+		.reduce((acc, e) => acc + e.note * e.coefficient, 0);
 
 	return totalNote / totalCoefficient;
 }
@@ -462,10 +461,15 @@ export default function Notes({
 													>
 														<Text style={styles.average}>
 															{resource.evaluations.length
-																? getAverage(resource).toLocaleString("fr-FR", {
-																		maximumFractionDigits: 2,
-																		minimumFractionDigits: 2,
-																  })
+																? isNaN(getAverage(resource))
+																	? "~"
+																	: getAverage(resource).toLocaleString(
+																			"fr-FR",
+																			{
+																				maximumFractionDigits: 2,
+																				minimumFractionDigits: 2,
+																			}
+																	  )
 																: "~"}
 														</Text>
 														<Text style={styles.resourceTitle}>
@@ -507,10 +511,10 @@ export default function Notes({
 																		},
 																	]}
 																>
-																	{evaluation.note.toLocaleString("fr-FR", {
+																	{evaluation.note?.toLocaleString("fr-FR", {
 																		maximumFractionDigits: 2,
 																		minimumFractionDigits: 0,
-																	})}
+																	}) ?? "ABS"}
 																</Text>
 																{evaluation.coefficient !== 1 && (
 																	<Text style={styles.coef}>
@@ -607,10 +611,10 @@ export default function Notes({
 																		},
 																	]}
 																>
-																	{evaluation.note.toLocaleString("fr-FR", {
+																	{evaluation.note?.toLocaleString("fr-FR", {
 																		maximumFractionDigits: 2,
 																		minimumFractionDigits: 0,
-																	})}
+																	}) ?? "ABS"}
 																</Text>
 																{evaluation.coefficient !== 1 && (
 																	<Text style={styles.coef}>
@@ -729,10 +733,10 @@ export default function Notes({
 																},
 															]}
 														>
-															{evaluation.note.toLocaleString("fr-FR", {
+															{evaluation.note?.toLocaleString("fr-FR", {
 																maximumFractionDigits: 2,
 																minimumFractionDigits: 0,
-															})}
+															}) ?? "ABS"}
 														</Text>
 														{evaluation.coefficient !== 1 && (
 															<Text style={styles.coef}>

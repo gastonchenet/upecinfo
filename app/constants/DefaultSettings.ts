@@ -4,4 +4,5 @@ export default Object.freeze({
 	infoNotificationEnabled: true,
 	hourIndicatorEnabled: true,
 	filterNoteset: false,
+	showControls: true,
 });

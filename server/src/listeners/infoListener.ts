@@ -81,6 +81,8 @@ export default function infoListener() {
 	};
 
 	ws.onclose = function () {
+		infoListener();
+
 		console.log(
 			`[${moment().format("HH:mm:ss")}] Disconnected from Discord WebSocket`
 		);

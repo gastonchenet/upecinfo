@@ -3,6 +3,7 @@
 # dependencies
 node_modules/
 package-lock.json
+bun.lockb
 
 # Expo
 .expo/
@@ -36,5 +37,5 @@ yarn-error.*
 # typescript
 *.tsbuildinfo
 
-# bun
-bun.lockb
+# bat files
+*.bat

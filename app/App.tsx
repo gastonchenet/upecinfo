@@ -460,10 +460,10 @@ export default function App() {
 					<Text style={styles.evalItem}>
 						<Text style={styles.evalItemLabel}>Note</Text>
 						{"  "}
-						{selectedNote?.note.toLocaleString("fr-FR", {
+						{selectedNote?.note?.toLocaleString("fr-FR", {
 							maximumFractionDigits: 2,
 							minimumFractionDigits: 2,
-						})}{" "}
+						}) ?? "ABS"}{" "}
 						(Coef {selectedNote?.coefficient.toLocaleString("fr-FR")})
 					</Text>
 					<Text style={styles.evalItem}>
@@ -701,6 +701,7 @@ export default function App() {
 					{promo?.sector === Sector.Info && auth && (
 						<Information
 							setImage={setImage}
+							promo={promo as (Promo & { sector: Sector }) | null}
 							theme={theme}
 							selectedMessage={pageModals.message}
 							setSelectedMessage={(message) =>

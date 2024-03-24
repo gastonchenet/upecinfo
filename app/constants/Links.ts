@@ -1,4 +1,4 @@
 export default Object.freeze({
-	API_URL: "https://upec-info.com/v2",
+	API_URL: "http://192.168.1.80:8080",
 	DISCORD_SERVER_URL: "https://discord.gg/fUrUuDqpqe",
 });

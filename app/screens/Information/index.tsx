@@ -19,9 +19,11 @@ import RipplePressable from "../../components/RipplePressable";
 import PageModal from "../../components/PageModal";
 import { fetchMessages } from "../../api/messages";
 import type { Message } from "../../types/Message";
+import type { Promo, Sector } from "../../types/Planning";
 
 type InformationProps = {
 	setImage: (image: { url: string; height: number; width: number }) => void;
+	promo: (Promo & { sector: Sector }) | null;
 	theme: "light" | "dark";
 	selectedMessage: Message | null;
 	setSelectedMessage: (message: Message | null) => void;
@@ -44,6 +46,7 @@ function translateSizeToBits(size: number) {
 
 export default function Information({
 	setImage,
+	promo,
 	theme,
 	selectedMessage,
 	setSelectedMessage,
@@ -75,13 +78,15 @@ export default function Information({
 	}
 
 	useEffect(() => {
-		fetchMessages().then((data) => setMessages(data));
+		if (promo) {
+			fetchMessages(promo).then((data) => setMessages(data));
 
-		getLastChecked().then((lastChecked) => {
-			if (!lastChecked) return;
-			setLastSeen(lastChecked);
-		});
-	}, []);
+			getLastChecked().then((lastChecked) => {
+				if (!lastChecked) return;
+				setLastSeen(lastChecked);
+			});
+		}
+	}, [promo]);
 
 	useEffect(() => {
 		if (theme === "dark") {

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { View, Text, ScrollView, Image } from "react-native";
+import { View, Text, ScrollView, Image, ImageBackground } from "react-native";
 import { MaterialIcons } from "@expo/vector-icons";
 import moment, { type Moment } from "moment";
 import "moment/locale/fr";
@@ -11,10 +11,11 @@ import Calendar from "../../components/Calendar";
 import HourIndicator from "../../components/HourIndicator";
 import getMealEvent from "../../utils/getMealEvent";
 import type DefaultSettings from "../../constants/DefaultSettings";
-import type {
-	MealEvent,
-	Planning as PlanningType,
-	PlanningEvent,
+import {
+	type MealEvent,
+	type Planning as PlanningType,
+	type PlanningEvent,
+	EventType,
 } from "../../types/Planning";
 
 enum ColorType {
@@ -200,8 +201,14 @@ export default function Planning({
 				</View>
 				<View style={styles.eventContainer}>
 					{dayEvents.map((event, index) => (
-						<View
+						<ImageBackground
 							key={index}
+							resizeMode="repeat"
+							source={
+								event.type === EventType.Class || !settings.showControls
+									? undefined
+									: require("../../assets/images/hash.png")
+							}
 							style={[
 								styles.event,
 								{
@@ -251,10 +258,25 @@ export default function Planning({
 									{moment(event.end).format("HH[h]mm")}
 								</Text>
 							</View>
-							{event.location && (
-								<Text style={styles.room}>{event.location}</Text>
-							)}
-						</View>
+							<View>
+								{event.location && (
+									<Text style={styles.room}>{event.location}</Text>
+								)}
+								{settings.showControls && event.type === EventType.Sae && (
+									<Image
+										source={require("../../assets/images/group.png")}
+										style={styles.eventTypeIcon}
+									/>
+								)}
+								{settings.showControls &&
+									event.type === EventType.Evaluation && (
+										<Image
+											source={require("../../assets/images/grade.png")}
+											style={styles.eventTypeIcon}
+										/>
+									)}
+							</View>
+						</ImageBackground>
 					))}
 					{settings.showMealBounds && mealEvent && (
 						<View

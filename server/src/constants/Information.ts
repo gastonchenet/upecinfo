@@ -14,4 +14,7 @@ export const USERNAME_MAP: { [key: string]: string } = {
 	"selma.iutsf": "Selma Naboulsi",
 	fbgervais78: "Frédéric Gervais",
 	lucdartois: "Luc Dartois",
+	annabelle_demulethenon_fbleaus: "Annabelle Demule Thenon",
+	lgermerie: "Loïc Germerie Guizouarn",
+	pvalarcher: "Pierre Valarcher",
 };

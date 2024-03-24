@@ -11,6 +11,12 @@ export enum Sector {
 	Mmi = "mmi",
 }
 
+export enum EventType {
+	Class,
+	Evaluation,
+	Sae,
+}
+
 type Promo = {
 	name: string;
 	year: number;
@@ -18,6 +24,7 @@ type Promo = {
 	group: number;
 	notificationChannel: string;
 	planningIds: string[];
+	info: { channel: string; role: string } | null;
 };
 
 type PlanningEvent = {
@@ -27,6 +34,7 @@ type PlanningEvent = {
 	summary: string;
 	location: string;
 	teacher: string;
+	type: EventType;
 };
 
 type MealEvent = {

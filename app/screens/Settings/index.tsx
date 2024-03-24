@@ -233,6 +233,30 @@ export default function Settings({
 							/>
 						</View>
 					)}
+					<View style={styles.settingItem}>
+						<View style={styles.settingItemTextContainer}>
+							<Text style={styles.settingItemTitle}>
+								Indicateur d'évaluation
+							</Text>
+							<Text style={styles.settingItemDescription}>
+								Montrer quand un cours est une évaluation.
+							</Text>
+						</View>
+						<Switch
+							value={settings.showControls}
+							onChange={() =>
+								setSettingsValue("showControls", !settings.showControls)
+							}
+							style={styles.settingItemSwitch}
+							thumbColor={
+								settings.showControls ? Colors.accent : Colors[theme].lightGray
+							}
+							trackColor={{
+								false: Colors[theme].light,
+								true: Colors.accentLight,
+							}}
+						/>
+					</View>
 				</View>
 				<View style={styles.settingContainer}>
 					<View style={styles.settingCategoryTitleContainer}>

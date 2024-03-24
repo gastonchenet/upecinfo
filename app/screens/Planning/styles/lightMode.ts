@@ -29,13 +29,13 @@ export default StyleSheet.create({
 	room: {
 		backgroundColor: Colors.accent,
 		color: "white",
-		alignSelf: "flex-start",
 		paddingHorizontal: 8,
 		paddingVertical: 4,
 		borderRadius: 5,
 		fontSize: 12,
 		fontFamily: "Rubik-Regular",
 		textAlign: "right",
+		marginRight: -10,
 	},
 	boundaries: {
 		fontWeight: "400",
@@ -175,5 +175,12 @@ export default StyleSheet.create({
 		padding: 15,
 		borderRadius: 10,
 		backgroundColor: Colors.light.eventColor,
+	},
+	eventTypeIcon: {
+		width: 32,
+		height: 32,
+		marginLeft: "auto",
+		marginTop: "auto",
+		marginRight: -10,
 	},
 });

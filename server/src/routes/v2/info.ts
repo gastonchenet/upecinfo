@@ -1,7 +1,7 @@
-import axios from "axios";
+import axios, { type AxiosResponse } from "axios";
 import { Router } from "express";
 import { Message, RawMessage } from "../../types/Message";
-import moment from "moment";
+import moment, { type Moment } from "moment";
 import {
 	UPDATE_INTERVAL,
 	GROUP_MESSAGE_MINUTES,
@@ -10,19 +10,82 @@ import {
 	USERNAME_MAP,
 } from "../../constants/Information";
 import { decode } from "html-entities";
+import PromosInfo, {
+	SECTOR_DISCORD_CHANNEL as INFO_SECTOR_DISCORD_CHANNEL,
+} from "../../constants/Planning/Info";
+import PromosMmi from "../../constants/Planning/Mmi";
+import PromosTc from "../../constants/Planning/Tc";
+import { type Promo, Sector } from "../../types/Planning";
+
+const SectorsChannels = Object.freeze({
+	[Sector.Info]: INFO_SECTOR_DISCORD_CHANNEL,
+	[Sector.Mmi]: null,
+	[Sector.Tc]: null,
+});
+
+const Promos = Object.freeze({
+	[Sector.Info]: PromosInfo,
+	[Sector.Tc]: PromosTc,
+	[Sector.Mmi]: PromosMmi,
+});
+
+type Identidier = `${Sector}${string}`;
 
 const router = Router();
+const updates = new Map<Identidier, Moment>();
+const messages = new Map<Identidier, Message[]>();
 
-let lastUpdate = moment().subtract(UPDATE_INTERVAL);
-let messages: Message[] = [];
+async function filterPromoRequest(
+	request: Promise<AxiosResponse<any, any>>,
+	promo: Promo
+) {
+	if (!promo?.info?.role) return { data: [] };
+	const { data } = await request;
 
-async function fetchChannelMessages(): Promise<RawMessage[]> {
-	const { data } = await axios.get(
-		`https://discord.com/api/v9/channels/${process.env.INFO_CHANNEL_ID}/messages?limit=100`,
-		{ headers: { Authorization: process.env.DISCORD_TOKEN } }
+	return {
+		data: data.filter((message: RawMessage) => {
+			if (!new RegExp(`<@&${promo.info!.role}>`).test(message.content))
+				return false;
+
+			if (!USERNAME_MAP[message.author.username]) return false;
+
+			return true;
+		}),
+	};
+}
+
+async function fetchChannelMessages(
+	sector: Sector | null,
+	promoNotificationChannel: string | null
+): Promise<RawMessage[]> {
+	if (!sector || !SectorsChannels[sector]) return [];
+
+	const requests: Promise<{ data: any }>[] = [
+		axios.get(
+			`https://discord.com/api/v9/channels/${SectorsChannels[sector]}/messages?limit=100`,
+			{ headers: { Authorization: process.env.DISCORD_TOKEN } }
+		),
+	];
+
+	const promo = Promos[sector]?.find(
+		(promo) => promo.notificationChannel === promoNotificationChannel
 	);
 
-	return data;
+	if (promo?.info?.channel) {
+		requests.push(
+			filterPromoRequest(
+				axios.get(
+					`https://discord.com/api/v9/channels/${promo.info.channel}/messages?limit=100`,
+					{ headers: { Authorization: process.env.DISCORD_TOKEN } }
+				),
+				promo
+			)
+		);
+	}
+
+	const responses = await Promise.all(requests);
+
+	return responses.map((response) => response.data).flat();
 }
 
 function groupMessages(messages: Message[]) {
@@ -101,40 +164,54 @@ async function urlEmbeds(messageContent: string) {
 }
 
 router.get("/", async (req, res) => {
+	const sector = (req.query.sector?.toString() as Sector) ?? null;
+	const promo = req.query.promo?.toString() ?? null;
+	const identifier: Identidier = `${sector}${promo}`;
+	const lastUpdate = updates.get(identifier) ?? moment(0);
+
 	if (moment().diff(lastUpdate) < UPDATE_INTERVAL) {
-		return res.json(messages);
+		return res.json(messages.get(identifier));
 	}
 
-	const rawMessages = await fetchChannelMessages();
+	const rawMessages = await fetchChannelMessages(sector, promo);
 
-	messages = groupMessages(
-		await Promise.all(
-			rawMessages
-				.filter((m) => moment(m.timestamp).isAfter(INBOX_START_DATE))
-				.map(async (message: RawMessage) => ({
-					content: message.content.replace(/[_*]{1,2}|`(?:`{2})?/g, ""),
-					timestamp: moment(message.timestamp).toISOString(),
-					author_username:
-						USERNAME_MAP[message.author.username] ?? message.author.username,
-					author_avatar: message.author.avatar
-						? `https://cdn.discordapp.com/avatars/${message.author.id}/${message.author.avatar}.png`
-						: null,
-					attachments: message.attachments.map((attachment) => ({
-						filename: attachment.filename,
-						url: attachment.url,
-						height: attachment.height,
-						width: attachment.width,
-						type: attachment.content_type,
-						size: attachment.size,
-					})),
-					embeds: await urlEmbeds(message.content),
-				}))
+	messages.set(
+		identifier,
+		groupMessages(
+			await Promise.all(
+				rawMessages
+					.filter((m) => moment(m.timestamp).isAfter(INBOX_START_DATE))
+					.sort((a, b) => moment(b.timestamp).diff(a.timestamp))
+					.map(async (message: RawMessage) => ({
+						content: message.content
+							.replace(
+								/(?:[_*]{1,2})|(?:`(?:`{2})?)|(?:\s*<@&\d+>\s*)|(?:,$)/g,
+								""
+							)
+							.trim(),
+						timestamp: moment(message.timestamp).toISOString(),
+						author_username:
+							USERNAME_MAP[message.author.username] ?? message.author.username,
+						author_avatar: message.author.avatar
+							? `https://cdn.discordapp.com/avatars/${message.author.id}/${message.author.avatar}.png`
+							: null,
+						attachments: message.attachments.map((attachment) => ({
+							filename: attachment.filename.trim(),
+							url: attachment.url,
+							height: attachment.height,
+							width: attachment.width,
+							type: attachment.content_type,
+							size: attachment.size,
+						})),
+						embeds: await urlEmbeds(message.content),
+					}))
+			)
 		)
 	);
 
-	lastUpdate = moment();
+	updates.set(identifier, moment());
 
-	return res.json(messages);
+	return res.json(messages.get(identifier));
 });
 
 export default router;
