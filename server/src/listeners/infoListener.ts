@@ -6,6 +6,24 @@ import { MIN_CONTENT_LENGTH, USERNAME_MAP } from "../constants/Information";
 import Notification from "../models/Notification";
 import moment from "moment";
 import "moment/locale/fr";
+import PromosInfo, {
+	SECTOR_DISCORD_CHANNEL as INFO_SECTOR_DISCORD_CHANNEL,
+} from "../constants/Planning/Info";
+import PromosMmi from "../constants/Planning/Mmi";
+import PromosTc from "../constants/Planning/Tc";
+import { Sector as SectorType } from "../types/Planning";
+
+const SectorsChannels = Object.freeze({
+	[SectorType.Info]: INFO_SECTOR_DISCORD_CHANNEL,
+	[SectorType.Mmi]: null,
+	[SectorType.Tc]: null,
+});
+
+const Promos = Object.freeze({
+	[SectorType.Info]: PromosInfo,
+	[SectorType.Tc]: PromosTc,
+	[SectorType.Mmi]: PromosMmi,
+});
 
 export default function infoListener() {
 	const ws = new WebSocket("wss://gateway.discord.gg/?v=9&encoding=json");
@@ -40,39 +58,69 @@ export default function infoListener() {
 				break;
 
 			case 0:
-				if (
-					message.t === "MESSAGE_CREATE" &&
-					message.d.channel_id === process.env.INFO_CHANNEL_ID
-				) {
-					const fullBody = message.d.content;
-					if (fullBody.length < MIN_CONTENT_LENGTH) return;
+				if (message.t !== "MESSAGE_CREATE") return;
+				const fullBody = message.d.content;
+				if (fullBody.length < MIN_CONTENT_LENGTH) return;
 
-					const body =
-						fullBody.length > 150 ? fullBody.slice(0, 150) + "..." : fullBody;
+				const body =
+					fullBody.length > 150 ? fullBody.slice(0, 150) + "..." : fullBody;
 
-					const rawAuthor = message.d.author.username;
-					const author = USERNAME_MAP[rawAuthor] ?? rawAuthor;
-					const title = `Nouveau message de ${author}`;
+				const rawAuthor = message.d.author.username;
+				const author = USERNAME_MAP[rawAuthor] ?? rawAuthor;
+				const title = `Nouveau message de ${author}`;
 
-					const sectors = await Sector.find({
-						sectorId: { $in: Info.map((sector) => sector.notificationChannel) },
+				Object.entries(SectorsChannels)
+					.filter(([_, c]) => c !== null)
+					.forEach(async ([key, channelId]) => {
+						if (message.d.channel_id !== channelId) return;
+						const sectors = await Sector.find({
+							sectorId: {
+								$in: Promos[key as SectorType].map(
+									(sector) => sector.notificationChannel
+								),
+							},
+						});
+
+						const expoPushTokens = sectors.flatMap((sector) =>
+							sector.infoExpoPushTokens.map((token) => token.toString())
+						);
+
+						await sendNotification(expoPushTokens, title, body);
+
+						await Notification.create({
+							title,
+							body,
+							expoPushTokens,
+							icon: "chatbubbles",
+							action: "TOPAGE:3",
+						});
 					});
 
-					const expoPushTokens = sectors.flatMap((sector) =>
-						sector.infoExpoPushTokens.map((token) => token.toString())
-					);
+				Object.values(Promos)
+					.flat()
+					.forEach(async (promo) => {
+						if (message.d.channel_id !== promo.info?.channel) return;
 
-					await sendNotification(expoPushTokens, title, body);
+						const sector = await Sector.findOne({
+							sectorId: promo.notificationChannel,
+						});
 
-					await Notification.create({
-						title,
-						body,
-						expoPushTokens,
-						icon: "chatbubbles",
-						action: "TOPAGE:3",
+						if (!sector) return;
+
+						const expoPushTokens = sector.infoExpoPushTokens.map((token) =>
+							token.toString()
+						);
+
+						await sendNotification(expoPushTokens, title, body);
+
+						await Notification.create({
+							title,
+							body,
+							expoPushTokens,
+							icon: "chatbubbles",
+							action: "TOPAGE:3",
+						});
 					});
-				}
-
 				break;
 
 			default:
